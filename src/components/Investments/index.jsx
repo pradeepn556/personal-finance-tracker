@@ -505,6 +505,79 @@ export default function Investments({ data, setInvestments }) {
         <StatCard label="📦 Holdings"    value={holdings.length}  sub={`${active.length} open lots`} />
       </div>
 
+      {/* ── Add Investment form (collapsible) ─────────────── */}
+      <div style={CARD}>
+        <button
+          onClick={() => { if (editId) cancelForm(); else setFormOpen(o => !o); }}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer' }}
+          aria-expanded={formOpen}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: '#06B6D420', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Plus size={14} color="#06B6D4" />
+            </div>
+            <span style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700 }}>
+              {editId ? '✏️ EDIT INVESTMENT' : '+ ADD INVESTMENT'}
+            </span>
+          </div>
+          {formOpen ? <ChevronUp size={18} color="#64748B" /> : <ChevronDown size={18} color="#64748B" />}
+        </button>
+
+        <div style={{ maxHeight: formOpen ? '800px' : '0', overflow: 'hidden', opacity: formOpen ? 1 : 0, transition: 'max-height 0.3s ease, opacity 0.25s ease' }}>
+          <div style={{ borderTop: '1px solid #334155', padding: '20px' }}>
+            <form onSubmit={handleSubmit}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" style={{ gap: 16 }}>
+                <Field label="Date" required error={errors.date}>
+                  <input type="date" value={form.date} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                </Field>
+                <Field label="Type" required error={errors.type}>
+                  <select value={form.type} style={INPUT}
+                          onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                    <option value="">Select type…</option>
+                    {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </Field>
+                <Field label="Symbol / Name" required error={errors.symbol}>
+                  <input type="text" placeholder="e.g. AAPL, BTC"
+                         value={form.symbol} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))} />
+                </Field>
+                <Field label="Quantity" required error={errors.quantity}>
+                  <input type="number" min="0" step="0.0001" placeholder="0"
+                         value={form.quantity} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
+                </Field>
+                <Field label="Purchase Price (AUD)" required error={errors.purchasePrice}>
+                  <input type="number" min="0" step="0.0001" placeholder="0.00"
+                         value={form.purchasePrice} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))} />
+                </Field>
+                <Field label="Current Price (AUD)" required error={errors.currentPrice}>
+                  <input type="number" min="0" step="0.0001" placeholder="0.00"
+                         value={form.currentPrice} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, currentPrice: e.target.value }))} />
+                </Field>
+                <Field label="Notes (optional)">
+                  <input type="text" placeholder="Optional notes…" value={form.notes} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                </Field>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                <button type="submit"
+                        style={{ height: 44, padding: '0 24px', backgroundColor: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                  {editId ? 'Update Investment' : '+ Add Investment'}
+                </button>
+                <button type="button" onClick={cancelForm}
+                        style={{ height: 44, padding: '0 20px', backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  {editId ? 'Cancel' : 'Reset'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
       {/* ── Holdings table (grouped by symbol) ───────────── */}
       <div style={{ ...CARD, padding: '20px' }}>
         <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
@@ -682,79 +755,6 @@ export default function Investments({ data, setInvestments }) {
           </div>
         </div>
       )}
-
-      {/* ── Add Investment form (collapsible) ─────────────── */}
-      <div style={CARD}>
-        <button
-          onClick={() => { if (editId) cancelForm(); else setFormOpen(o => !o); }}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer' }}
-          aria-expanded={formOpen}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: '#06B6D420', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Plus size={14} color="#06B6D4" />
-            </div>
-            <span style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700 }}>
-              {editId ? '✏️ EDIT INVESTMENT' : '+ ADD INVESTMENT'}
-            </span>
-          </div>
-          {formOpen ? <ChevronUp size={18} color="#64748B" /> : <ChevronDown size={18} color="#64748B" />}
-        </button>
-
-        <div style={{ maxHeight: formOpen ? '800px' : '0', overflow: 'hidden', opacity: formOpen ? 1 : 0, transition: 'max-height 0.3s ease, opacity 0.25s ease' }}>
-          <div style={{ borderTop: '1px solid #334155', padding: '20px' }}>
-            <form onSubmit={handleSubmit}>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" style={{ gap: 16 }}>
-                <Field label="Date" required error={errors.date}>
-                  <input type="date" value={form.date} style={INPUT}
-                         onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
-                </Field>
-                <Field label="Type" required error={errors.type}>
-                  <select value={form.type} style={INPUT}
-                          onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
-                    <option value="">Select type…</option>
-                    {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </Field>
-                <Field label="Symbol / Name" required error={errors.symbol}>
-                  <input type="text" placeholder="e.g. AAPL, BTC"
-                         value={form.symbol} style={INPUT}
-                         onChange={e => setForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))} />
-                </Field>
-                <Field label="Quantity" required error={errors.quantity}>
-                  <input type="number" min="0" step="0.0001" placeholder="0"
-                         value={form.quantity} style={INPUT}
-                         onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
-                </Field>
-                <Field label="Purchase Price (AUD)" required error={errors.purchasePrice}>
-                  <input type="number" min="0" step="0.0001" placeholder="0.00"
-                         value={form.purchasePrice} style={INPUT}
-                         onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))} />
-                </Field>
-                <Field label="Current Price (AUD)" required error={errors.currentPrice}>
-                  <input type="number" min="0" step="0.0001" placeholder="0.00"
-                         value={form.currentPrice} style={INPUT}
-                         onChange={e => setForm(f => ({ ...f, currentPrice: e.target.value }))} />
-                </Field>
-                <Field label="Notes (optional)">
-                  <input type="text" placeholder="Optional notes…" value={form.notes} style={INPUT}
-                         onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
-                </Field>
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-                <button type="submit"
-                        style={{ height: 44, padding: '0 24px', backgroundColor: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-                  {editId ? 'Update Investment' : '+ Add Investment'}
-                </button>
-                <button type="button" onClick={cancelForm}
-                        style={{ height: 44, padding: '0 20px', backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                  {editId ? 'Cancel' : 'Reset'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
 
       {/* ── Closed Positions toggle ───────────────────────── */}
       <div style={CARD}>

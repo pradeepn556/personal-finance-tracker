@@ -1,19 +1,22 @@
 // ============================================================
-// Expenses/index.jsx — Expense tracking v2 (redesigned)
-// Features: Prominent budget overview, collapsible form,
-//           2×2 chart grid, spending calendar, pro table
+// Expenses/index.jsx — Expense tracking v3
+// Fixed: category spend lookup (array→map), pay-cycle month
+//        (16th–15th), quick filters, filter defaults
 // ============================================================
 
 import { useState, useMemo, useCallback } from 'react';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { Trash2, Edit2, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  Trash2, Edit2, X, CheckCircle, AlertCircle,
+  ChevronDown, ChevronUp, Plus, ChevronLeft, ChevronRight,
+} from 'lucide-react';
 
 import { generateId } from '../../utils/storage';
-import { filterCurrentMonth, getMonthlyTrend, getExpensesByCategory } from '../../utils/calculations';
+import { getMonthlyTrend, getExpensesByCategory } from '../../utils/calculations';
 import { formatCurrency, formatPercent } from '../../utils/formatters';
 import { formatDate, todayISO } from '../../utils/dateHelpers';
 
@@ -38,13 +41,50 @@ const CHART_COLOURS = ['#EF4444', '#06B6D4', '#F59E0B', '#10B981', '#8B5CF6', '#
 // ── Design tokens ──────────────────────────────────────────
 const CARD  = { backgroundColor: '#1E2139', border: '1px solid #334155', borderRadius: '10px' };
 const HDR   = { backgroundColor: '#1A2332', borderBottom: '1px solid #334155' };
-const INPUT = { width: '100%', backgroundColor: '#0F172A', border: '1px solid #334155', borderRadius: '8px', padding: '10px 12px', color: '#F1F5F9', fontSize: '14px', outline: 'none' };
-const LABEL = { fontSize: '11px', fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.08em', display: 'block', marginBottom: '6px', textTransform: 'uppercase' };
+const INPUT = {
+  width: '100%', backgroundColor: '#0F172A', border: '1px solid #334155',
+  borderRadius: '8px', padding: '10px 12px', color: '#F1F5F9',
+  fontSize: '14px', outline: 'none',
+};
+const LABEL = {
+  fontSize: '11px', fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.08em',
+  display: 'block', marginBottom: '6px', textTransform: 'uppercase',
+};
 
+// ── Pay-cycle helpers (16th of prev/current → 15th next month) ──
+// The user's "month" runs from the 16th to the 15th.
+// e.g. today = 5 Mar 2026 → cycle = 16 Feb 2026 – 15 Mar 2026
+
+function payCycleStart() {
+  const now = new Date();
+  const d   = now.getDate();
+  if (d >= 16) {
+    // Cycle started this month on the 16th
+    return new Date(now.getFullYear(), now.getMonth(), 16)
+      .toISOString().slice(0, 10);
+  } else {
+    // Cycle started LAST month on the 16th
+    return new Date(now.getFullYear(), now.getMonth() - 1, 16)
+      .toISOString().slice(0, 10);
+  }
+}
+
+// Returns ISO date string for today
+const TODAY_ISO = todayISO();
+
+// Filter entries to the current pay cycle (16th → today)
+function filterPayCycle(entries) {
+  const start = payCycleStart();
+  return entries.filter(e => e.date >= start && e.date <= TODAY_ISO);
+}
+
+// ── Tiny helpers ───────────────────────────────────────────
 function Field({ label, required, error, children }) {
   return (
     <div>
-      <label style={LABEL}>{label}{required && <span style={{ color: '#EF4444', marginLeft: 2 }}>*</span>}</label>
+      <label style={LABEL}>
+        {label}{required && <span style={{ color: '#EF4444', marginLeft: 2 }}>*</span>}
+      </label>
       {children}
       {error && <p style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{error}</p>}
     </div>
@@ -56,7 +96,13 @@ function Toast({ message, type }) {
   const colour = type === 'success' ? '#10B981' : '#EF4444';
   const Icon   = type === 'success' ? CheckCircle : AlertCircle;
   return (
-    <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 60, display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderRadius: 12, backgroundColor: '#1A2332', border: `1px solid ${colour}`, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+    <div style={{
+      position: 'fixed', bottom: 24, right: 24, zIndex: 60,
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '12px 18px', borderRadius: 12,
+      backgroundColor: '#1A2332', border: `1px solid ${colour}`,
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    }}>
       <Icon size={16} color={colour} />
       <span style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 600 }}>{message}</span>
     </div>
@@ -69,13 +115,15 @@ function ChartTip({ active, payload, label, currency = 'AUD' }) {
     <div style={{ backgroundColor: '#1A2332', border: '1px solid #334155', borderRadius: 8, padding: '10px 14px' }}>
       <p style={{ color: '#CBD5E1', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{label}</p>
       {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color || '#06B6D4', fontSize: 12 }}>{p.name}: {formatCurrency(p.value, currency)}</p>
+        <p key={i} style={{ color: p.color || '#06B6D4', fontSize: 12 }}>
+          {p.name}: {formatCurrency(p.value, currency)}
+        </p>
       ))}
     </div>
   );
 }
 
-// ── Spending Calendar (GitHub-style heatmap) ───────────────
+// ── Spending Calendar ──────────────────────────────────────
 function SpendingCalendar({ expenses }) {
   const [viewDate, setViewDate] = useState(() => {
     const now = new Date();
@@ -140,7 +188,8 @@ function SpendingCalendar({ expenses }) {
             <div key={key}
                  title={amount ? formatCurrency(amount, 'AUD') : ''}
                  style={{
-                   aspectRatio: '1', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                   aspectRatio: '1', borderRadius: 4,
+                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                    backgroundColor: cellColour(amount), border: '1px solid #334155',
                    color: amount ? '#F1F5F9' : '#334155', fontSize: '0.6rem', cursor: 'default',
                  }}>
@@ -167,7 +216,10 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
   const dateFormat = settings?.dateFormat || 'DD/MM/YYYY';
 
   // ── Form state ──────────────────────────────────────────
-  const blank = { date: todayISO(), category: '', amount: '', description: '', paymentMethod: '', notes: '' };
+  const blank = {
+    date: todayISO(), category: '', amount: '',
+    description: '', paymentMethod: '', notes: '',
+  };
   const [form,      setForm]      = useState(blank);
   const [errors,    setErrors]    = useState({});
   const [editId,    setEditId]    = useState(null);
@@ -179,10 +231,10 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
   const [budgetEdit,  setBudgetEdit]  = useState(false);
   const [budgetDraft, setBudgetDraft] = useState({});
 
-  // Filters/sort/page
+  // ── Filters — default to current pay cycle ──────────────
   const [fCategory,    setFCategory]    = useState('');
-  const [fDateFrom,    setFDateFrom]    = useState('');
-  const [fDateTo,      setFDateTo]      = useState('');
+  const [fDateFrom,    setFDateFrom]    = useState(() => payCycleStart());
+  const [fDateTo,      setFDateTo]      = useState(() => todayISO());
   const [fDescription, setFDescription] = useState('');
   const [sortKey,      setSortKey]      = useState('date');
   const [sortDir,      setSortDir]      = useState('desc');
@@ -207,7 +259,9 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
     const errs = validate();
     if (Object.keys(errs).length) { setErrors(errs); return; }
     if (editId) {
-      setExpenses(expenses.map(exp => exp.id === editId ? { ...exp, ...form, amount: Number(form.amount) } : exp));
+      setExpenses(expenses.map(exp =>
+        exp.id === editId ? { ...exp, ...form, amount: Number(form.amount) } : exp
+      ));
       showToast('Expense updated ✓');
     } else {
       setExpenses([...expenses, { ...form, amount: Number(form.amount), id: generateId('exp') }]);
@@ -217,7 +271,10 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
   }
 
   function handleEdit(exp) {
-    setForm({ date: exp.date, category: exp.category, amount: String(exp.amount), description: exp.description || '', paymentMethod: exp.paymentMethod || '', notes: exp.notes || '' });
+    setForm({
+      date: exp.date, category: exp.category, amount: String(exp.amount),
+      description: exp.description || '', paymentMethod: exp.paymentMethod || '', notes: exp.notes || '',
+    });
     setEditId(exp.id); setErrors({}); setFormOpen(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -235,46 +292,113 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
     showToast('Budgets saved ✓');
   }
 
-  // ── Computed ────────────────────────────────────────────
-  const monthExpenses    = filterCurrentMonth(expenses);
-  const monthTotal       = monthExpenses.reduce((s, e) => s + Number(e.amount), 0);
-  const totalBudget      = Object.values(budgets || {}).reduce((s, v) => s + Number(v || 0), 0);
-  const budgetRemaining  = totalBudget - monthTotal;
-  const budgetPct        = totalBudget > 0 ? Math.min(100, (monthTotal / totalBudget) * 100) : 0;
-  const budgetColour     = budgetPct > 90 ? '#EF4444' : budgetPct > 75 ? '#F59E0B' : '#10B981';
-  const budgetStatus     = budgetPct > 90 ? 'Over Budget ⚠️' : budgetPct > 75 ? 'Watch Spending ⚡' : 'On Track ✓';
+  // ── Quick filter presets ────────────────────────────────
+  function applyQuickFilter(preset) {
+    const today = todayISO();
+    const d = new Date();
+    switch (preset) {
+      case 'today':
+        setFDateFrom(today); setFDateTo(today); break;
+      case 'yesterday': {
+        d.setDate(d.getDate() - 1);
+        const y = d.toISOString().slice(0, 10);
+        setFDateFrom(y); setFDateTo(y); break;
+      }
+      case 'week': {
+        d.setDate(d.getDate() - 6);
+        setFDateFrom(d.toISOString().slice(0, 10)); setFDateTo(today); break;
+      }
+      case 'paycycle':
+        setFDateFrom(payCycleStart()); setFDateTo(today); break;
+      default: break;
+    }
+    setPage(1);
+  }
 
-  const categorySpend    = getExpensesByCategory(monthExpenses);
-  const allCategorySpend = getExpensesByCategory(expenses);
-  const monthlyTrend     = getMonthlyTrend([], expenses, 12);
+  function resetFilters() {
+    setFCategory('');
+    setFDateFrom(payCycleStart());
+    setFDateTo(todayISO());
+    setFDescription('');
+    setPage(1);
+  }
 
-  const topCategories = useMemo(() =>
-    Object.entries(categorySpend).sort(([, a], [, b]) => b - a).slice(0, 10)
-      .map(([category, amount]) => ({ category, amount }))
-  , [categorySpend]);
+  // ── Pay-cycle filtered expenses (for budget/charts) ─────
+  // getExpensesByCategory returns an ARRAY: [{category, amount, percentage}]
+  // We convert to a plain map {category: amount} for O(1) lookup.
 
-  const pieData = useMemo(() =>
-    Object.entries(allCategorySpend).sort(([, a], [, b]) => b - a).slice(0, 10)
-      .map(([name, value]) => ({ name, value }))
-  , [allCategorySpend]);
+  const payCycleExpenses = useMemo(() => filterPayCycle(expenses), [expenses]);
 
-  const trendData = useMemo(() =>
-    monthlyTrend.map(m => ({ month: m.month, expenses: m.expenses }))
-  , [monthlyTrend]);
+  const payCycleCategoryArray = useMemo(
+    () => getExpensesByCategory(payCycleExpenses),
+    [payCycleExpenses]
+  );
 
-  const budgetCategories = CATEGORIES.filter(cat => (budgets || {})[cat] > 0 || categorySpend[cat] > 0);
+  // {category: amount} map for budget bars and budgetCategories
+  const categorySpend = useMemo(
+    () => Object.fromEntries(payCycleCategoryArray.map(c => [c.category, c.amount])),
+    [payCycleCategoryArray]
+  );
 
-  // ── Filter/sort/paginate ────────────────────────────────
+  // All-time category array for the pie chart
+  const allCategoryArray = useMemo(() => getExpensesByCategory(expenses), [expenses]);
+
+  // Chart data — already sorted desc by amount from getExpensesByCategory
+  const topCategories = useMemo(
+    () => payCycleCategoryArray.slice(0, 10).map(c => ({ category: c.category, amount: c.amount })),
+    [payCycleCategoryArray]
+  );
+
+  const pieData = useMemo(
+    () => allCategoryArray.slice(0, 10).map(c => ({ name: c.category, value: c.amount })),
+    [allCategoryArray]
+  );
+
+  // 12-month trend (calendar months, for the line chart)
+  const trendData = useMemo(
+    () => getMonthlyTrend([], expenses, 12).map(m => ({ month: m.month, expenses: m.expenses })),
+    [expenses]
+  );
+
+  // Budget summary (pay cycle)
+  const monthTotal      = payCycleExpenses.reduce((s, e) => s + Number(e.amount), 0);
+  const totalBudget     = Object.values(budgets || {}).reduce((s, v) => s + Number(v || 0), 0);
+  const budgetRemaining = totalBudget - monthTotal;
+  const budgetPct       = totalBudget > 0 ? Math.min(100, (monthTotal / totalBudget) * 100) : 0;
+  const budgetColour    = budgetPct > 100 ? '#EF4444' : budgetPct > 80 ? '#F59E0B' : '#10B981';
+  const budgetStatus    = budgetPct > 100 ? 'Over Budget ⚠️' : budgetPct > 80 ? 'Watch Spending ⚡' : 'On Track ✓';
+
+  // Categories that have a budget OR were spent on this cycle
+  const budgetCategories = CATEGORIES.filter(
+    cat => Number((budgets || {})[cat] || 0) > 0 || (categorySpend[cat] || 0) > 0
+  );
+
+  // Pay-cycle label for UI
+  const cycleLabel = (() => {
+    const start = payCycleStart();
+    const end   = (() => {
+      const d = new Date(start);
+      return new Date(d.getFullYear(), d.getMonth() + 1, 15)
+        .toISOString().slice(0, 10);
+    })();
+    return `${formatDate(start, dateFormat)} – ${formatDate(end, dateFormat)}`;
+  })();
+
+  // ── Filter + sort + paginate ────────────────────────────
   const filtered = useMemo(() => {
     let rows = [...expenses];
     if (fCategory)    rows = rows.filter(e => e.category === fCategory);
     if (fDateFrom)    rows = rows.filter(e => e.date >= fDateFrom);
     if (fDateTo)      rows = rows.filter(e => e.date <= fDateTo);
-    if (fDescription) rows = rows.filter(e => (e.description || '').toLowerCase().includes(fDescription.toLowerCase()));
+    if (fDescription) rows = rows.filter(e =>
+      (e.description || '').toLowerCase().includes(fDescription.toLowerCase())
+    );
     rows.sort((a, b) => {
       let va = a[sortKey], vb = b[sortKey];
       if (sortKey === 'amount') { va = Number(va); vb = Number(vb); }
-      return sortDir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+      return sortDir === 'asc'
+        ? (va < vb ? -1 : va > vb ? 1 : 0)
+        : (va > vb ? -1 : va < vb ? 1 : 0);
     });
     return rows;
   }, [expenses, fCategory, fDateFrom, fDateTo, fDescription, sortKey, sortDir]);
@@ -290,30 +414,55 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
   }
   const si = k => sortKey === k ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
+  // ── Quick filter active detection ────────────────────────
+  const today = todayISO();
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+  const weekStart  = (() => { const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString().slice(0, 10); })();
+  const cycleStart = payCycleStart();
+  const activePreset =
+    fDateFrom === today     && fDateTo === today     ? 'today'     :
+    fDateFrom === yesterday && fDateTo === yesterday ? 'yesterday' :
+    fDateFrom === weekStart && fDateTo === today     ? 'week'      :
+    fDateFrom === cycleStart && fDateTo === today    ? 'paycycle'  : null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
       {/* Page header */}
       <div>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: '#F1F5F9', margin: 0 }}>EXPENSES</h1>
-        <p style={{ color: '#475569', fontSize: 13, marginTop: 2 }}>Track spending, set budgets, and analyse your cash outflows</p>
+        <p style={{ color: '#475569', fontSize: 13, marginTop: 2 }}>
+          Pay Cycle: <strong style={{ color: '#06B6D4' }}>{cycleLabel}</strong>
+          &nbsp;·&nbsp;Total spent this cycle: <strong style={{ color: '#EF4444' }}>{formatCurrency(monthTotal, currency)}</strong>
+        </p>
       </div>
 
-      {/* ── Budget Overview (prominent) ────────────────────── */}
+      {/* ── Budget Overview ────────────────────────────────── */}
       <div style={{ ...CARD, padding: '24px' }}>
         <div className="grid grid-cols-1 md:grid-cols-3" style={{ gap: 24, marginBottom: 20 }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>Total Budget</div>
-            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9' }}>{formatCurrency(totalBudget, currency)}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+              Total Budget
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9' }}>
+              {formatCurrency(totalBudget, currency)}
+            </div>
           </div>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>Total Spent</div>
-            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color: '#EF4444' }}>{formatCurrency(monthTotal, currency)}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+              Total Spent
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color: '#EF4444' }}>
+              {formatCurrency(monthTotal, currency)}
+            </div>
           </div>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>Remaining</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+              Remaining
+            </div>
             <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color: budgetRemaining >= 0 ? '#10B981' : '#EF4444' }}>
-              {formatCurrency(Math.abs(budgetRemaining), currency)}{budgetRemaining < 0 ? ' over' : ''}
+              {formatCurrency(Math.abs(budgetRemaining), currency)}
+              {budgetRemaining < 0 ? ' over' : ''}
             </div>
           </div>
         </div>
@@ -321,17 +470,19 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
         {totalBudget > 0 && (
           <>
             <div style={{ height: 12, borderRadius: 8, backgroundColor: '#334155', overflow: 'hidden', marginBottom: 8 }}>
-              <div style={{ height: '100%', borderRadius: 8, width: `${budgetPct}%`, backgroundColor: budgetColour, transition: 'width 0.5s ease' }} />
+              <div style={{ height: '100%', borderRadius: 8, width: `${Math.min(100, budgetPct)}%`, backgroundColor: budgetColour, transition: 'width 0.5s ease' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ color: budgetColour, fontSize: 13, fontWeight: 700 }}>{budgetStatus}</span>
-              <span style={{ color: '#64748B', fontSize: 12 }}>{formatPercent(budgetPct)} used</span>
+              <span style={{ color: '#64748B', fontSize: 12 }}>{budgetPct.toFixed(1)}% used</span>
             </div>
           </>
         )}
 
         {totalBudget === 0 && (
-          <p style={{ color: '#475569', fontSize: 12, marginBottom: 12 }}>Set category budgets to track your monthly spending limits.</p>
+          <p style={{ color: '#475569', fontSize: 12, marginBottom: 0 }}>
+            Set category budgets to track your monthly spending limits.
+          </p>
         )}
 
         <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -352,7 +503,9 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
           <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, maxHeight: 260, overflowY: 'auto', padding: 4 }}>
             {CATEGORIES.map(cat => (
               <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: '#94A3B8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cat}</span>
+                <span style={{ fontSize: 12, color: '#94A3B8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {cat}
+                </span>
                 <input type="number" min="0" step="50" placeholder="0"
                        value={budgetDraft[cat] ?? ((budgets || {})[cat] || '')}
                        onChange={e => setBudgetDraft(d => ({ ...d, [cat]: e.target.value }))}
@@ -366,20 +519,21 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
         {!budgetEdit && budgetCategories.length > 0 && (
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {budgetCategories.map(cat => {
-              const spent  = Object.entries(categorySpend).find(([k]) => k === cat)?.[1] || 0;
+              const spent  = categorySpend[cat] || 0;
               const budget = Number((budgets || {})[cat] || 0);
               const pct    = budget > 0 ? Math.min(100, (spent / budget) * 100) : 0;
-              const col    = pct > 100 ? '#EF4444' : pct > 80 ? '#F59E0B' : '#10B981';
+              const col    = pct >= 100 ? '#EF4444' : pct > 80 ? '#F59E0B' : '#10B981';
               return (
                 <div key={cat}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
                     <span style={{ fontSize: 12, color: '#94A3B8' }}>{cat}</span>
                     <span style={{ fontSize: 11, fontFamily: 'monospace', color: col }}>
-                      {formatCurrency(spent, currency)} / {formatCurrency(budget, currency)}
+                      {formatCurrency(spent, currency)}
+                      {budget > 0 ? ` / ${formatCurrency(budget, currency)}` : ' (no budget)'}
                     </span>
                   </div>
                   <div style={{ height: 5, borderRadius: 4, backgroundColor: '#334155' }}>
-                    <div style={{ height: '100%', borderRadius: 4, width: `${pct}%`, backgroundColor: col }} />
+                    <div style={{ height: '100%', borderRadius: 4, width: `${pct}%`, backgroundColor: col, transition: 'width 0.4s ease' }} />
                   </div>
                 </div>
               );
@@ -458,36 +612,43 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
         </div>
       </div>
 
-      {/* ── 2×2 Charts grid ───────────────────────────────── */}
+      {/* ── 2×2 Charts ────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 16 }}>
 
-        {/* Top Categories (horizontal bar) */}
+        {/* Top Categories — horizontal bar */}
         <div style={{ ...CARD, padding: '20px' }}>
           <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>THIS MONTH — TOP CATEGORIES</h3>
+            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>THIS CYCLE — TOP CATEGORIES</h3>
+            <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Current pay cycle ({cycleLabel})</p>
           </div>
           {topCategories.length === 0 ? (
-            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>📭 No expenses this month.</p>
+            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>
+              📭 No expenses in this pay cycle.
+            </p>
           ) : (
-            <ResponsiveContainer width="100%" height={240}>
+            <ResponsiveContainer width="100%" height={Math.max(180, topCategories.length * 30)}>
               <BarChart data={topCategories} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" horizontal={false} />
-                <XAxis type="number" tick={{ fill: '#475569', fontSize: 10 }} tickLine={false} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                <YAxis type="category" dataKey="category" width={130} tick={{ fill: '#94A3B8', fontSize: 10 }} tickLine={false} />
+                <XAxis type="number" tick={{ fill: '#475569', fontSize: 10 }} tickLine={false}
+                       tickFormatter={v => `$${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                <YAxis type="category" dataKey="category" width={135}
+                       tick={{ fill: '#94A3B8', fontSize: 10 }} tickLine={false} />
                 <Tooltip content={<ChartTip currency={currency} />} />
-                <Bar dataKey="amount" name="Spent" fill="#EF4444" radius={[0,3,3,0]} />
+                <Bar dataKey="amount" name="Spent" fill="#EF4444" radius={[0, 3, 3, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
 
-        {/* All-time Distribution (pie) */}
+        {/* All-time Distribution — pie */}
         <div style={{ ...CARD, padding: '20px' }}>
           <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
             <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>ALL-TIME DISTRIBUTION</h3>
           </div>
           {pieData.length === 0 ? (
-            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>📭 No data yet.</p>
+            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>
+              📭 No expense data yet.
+            </p>
           ) : (
             <ResponsiveContainer width="100%" height={240}>
               <PieChart>
@@ -503,7 +664,7 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
           )}
         </div>
 
-        {/* Monthly Expenses trend (line) */}
+        {/* Monthly Expenses Trend — line chart */}
         <div style={{ ...CARD, padding: '20px' }}>
           <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
             <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>MONTHLY EXPENSES (12 months)</h3>
@@ -513,9 +674,10 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
               <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
               <XAxis dataKey="month" tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} />
               <YAxis tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} axisLine={false}
-                     tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+                     tickFormatter={v => `$${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
               <Tooltip content={<ChartTip currency={currency} />} />
-              <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#EF4444" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="expenses" name="Expenses"
+                    stroke="#EF4444" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -531,7 +693,34 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
 
       {/* ── Filters ───────────────────────────────────────── */}
       <div style={{ ...CARD, padding: '20px' }}>
-        <h3 style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filter Expenses</h3>
+        <h3 style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Filter Expenses
+        </h3>
+
+        {/* Quick filter buttons */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+          {[
+            { key: 'today',     label: 'Today'       },
+            { key: 'yesterday', label: 'Yesterday'   },
+            { key: 'week',      label: 'Last 7 Days' },
+            { key: 'paycycle',  label: '💳 Pay Cycle' },
+          ].map(btn => (
+            <button key={btn.key}
+                    onClick={() => applyQuickFilter(btn.key)}
+                    style={{
+                      height: 32, padding: '0 14px', borderRadius: 20,
+                      border: `1px solid ${activePreset === btn.key ? '#06B6D4' : '#334155'}`,
+                      backgroundColor: activePreset === btn.key ? '#06B6D420' : 'transparent',
+                      color: activePreset === btn.key ? '#06B6D4' : '#94A3B8',
+                      fontSize: 12, fontWeight: activePreset === btn.key ? 700 : 500,
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}>
+              {btn.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Date / category / search inputs */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ gap: 12 }}>
           <div>
             <label style={LABEL}>Category</label>
@@ -553,24 +742,28 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
           </div>
           <div>
             <label style={LABEL}>Search</label>
-            <input type="text" placeholder="Search description…" value={fDescription} style={INPUT}
+            <input type="text" placeholder="Search description…"
+                   value={fDescription} style={INPUT}
                    onChange={e => { setFDescription(e.target.value); setPage(1); }} />
           </div>
         </div>
+
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
           <span style={{ color: '#64748B', fontSize: 12 }}>
             {filtered.length} result{filtered.length !== 1 ? 's' : ''} — {formatCurrency(filteredSum, currency)}
           </span>
-          <button onClick={() => { setFCategory(''); setFDateFrom(''); setFDateTo(''); setFDescription(''); setPage(1); }}
+          <button onClick={resetFilters}
                   style={{ height: 32, padding: '0 14px', border: '1px solid #334155', borderRadius: 6, backgroundColor: 'transparent', color: '#94A3B8', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            Reset
+            Reset to Pay Cycle
           </button>
         </div>
       </div>
 
       {/* ── Expense Table ─────────────────────────────────── */}
       <div style={{ ...CARD, padding: '20px' }}>
-        <h3 style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.05em' }}>All Expenses</h3>
+        <h3 style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          All Expenses
+        </h3>
 
         {expenses.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748B', fontSize: 14 }}>
@@ -578,21 +771,32 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
           </div>
         ) : (
           <>
+            {/* Desktop table */}
             <div className="hidden md:block" style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#334155' }}>
                     {[
-                      { key: 'date', label: 'Date' }, { key: 'category', label: 'Category' },
-                      { key: 'amount', label: 'Amount' }, { key: 'description', label: 'Description' },
-                      { key: 'paymentMethod', label: 'Payment' },
+                      { key: 'date',        label: 'Date'        },
+                      { key: 'category',    label: 'Category'    },
+                      { key: 'amount',      label: 'Amount'      },
+                      { key: 'description', label: 'Description' },
+                      { key: 'paymentMethod', label: 'Payment'   },
                     ].map(col => (
                       <th key={col.key} onClick={() => toggleSort(col.key)}
-                          style={{ padding: '10px 12px', textAlign: col.key === 'amount' ? 'right' : 'left', color: '#F1F5F9', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+                          style={{
+                            padding: '10px 12px',
+                            textAlign: col.key === 'amount' ? 'right' : 'left',
+                            color: '#F1F5F9', fontSize: 12, fontWeight: 700,
+                            textTransform: 'uppercase', letterSpacing: '0.05em',
+                            cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
+                          }}>
                         {col.label}{si(col.key)}
                       </th>
                     ))}
-                    <th style={{ padding: '10px 12px', color: '#F1F5F9', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', textAlign: 'right' }}>Actions</th>
+                    <th style={{ padding: '10px 12px', color: '#F1F5F9', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', textAlign: 'right' }}>
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -615,7 +819,9 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
                       <td style={{ padding: '12px', color: '#F1F5F9', fontSize: 13, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {exp.description || '—'}
                       </td>
-                      <td style={{ padding: '12px', color: '#64748B', fontSize: 12 }}>{exp.paymentMethod || '—'}</td>
+                      <td style={{ padding: '12px', color: '#64748B', fontSize: 12 }}>
+                        {exp.paymentMethod || '—'}
+                      </td>
                       <td style={{ padding: '12px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
                           <button onClick={() => handleEdit(exp)} title="Edit"
@@ -654,9 +860,13 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
                   <p style={{ color: '#64748B', fontSize: 12 }}>{formatDate(exp.date, dateFormat)}</p>
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <button onClick={() => handleEdit(exp)}
-                            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, border: 'none', backgroundColor: '#334155', color: '#94A3B8', cursor: 'pointer' }}>Edit</button>
+                            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, border: 'none', backgroundColor: '#334155', color: '#94A3B8', cursor: 'pointer' }}>
+                      Edit
+                    </button>
                     <button onClick={() => setDeleteId(exp.id)}
-                            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, border: 'none', backgroundColor: '#EF444420', color: '#EF4444', cursor: 'pointer' }}>Delete</button>
+                            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, border: 'none', backgroundColor: '#EF444420', color: '#EF4444', cursor: 'pointer' }}>
+                      Delete
+                    </button>
                   </div>
                 </div>
               ))}
@@ -668,12 +878,13 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
                 <span style={{ color: '#64748B', fontSize: 12 }}>Page {page} of {totalPages}</span>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {[{ l: 'Prev', f: () => setPage(p => Math.max(1, p - 1)), d: page === 1 },
-                    { l: 'Next', f: () => setPage(p => Math.min(totalPages, p + 1)), d: page === totalPages }].map(b => (
-                    <button key={b.l} onClick={b.f} disabled={b.d}
-                            style={{ height: 32, padding: '0 14px', borderRadius: 6, border: '1px solid #334155', backgroundColor: 'transparent', color: b.d ? '#334155' : '#94A3B8', fontSize: 12, fontWeight: 600, cursor: b.d ? 'not-allowed' : 'pointer', opacity: b.d ? 0.5 : 1 }}>
-                      {b.l}
-                    </button>
-                  ))}
+                    { l: 'Next', f: () => setPage(p => Math.min(totalPages, p + 1)), d: page === totalPages }]
+                    .map(b => (
+                      <button key={b.l} onClick={b.f} disabled={b.d}
+                              style={{ height: 32, padding: '0 14px', borderRadius: 6, border: '1px solid #334155', backgroundColor: 'transparent', color: b.d ? '#334155' : '#94A3B8', fontSize: 12, fontWeight: 600, cursor: b.d ? 'not-allowed' : 'pointer', opacity: b.d ? 0.5 : 1 }}>
+                        {b.l}
+                      </button>
+                    ))}
                 </div>
               </div>
             )}
@@ -687,14 +898,20 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
           <div style={{ ...CARD, width: 360, padding: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
               <h3 style={{ color: '#F1F5F9', margin: 0, fontWeight: 700 }}>Delete Expense?</h3>
-              <button onClick={() => setDeleteId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} color="#64748B" /></button>
+              <button onClick={() => setDeleteId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <X size={18} color="#64748B" />
+              </button>
             </div>
             <p style={{ color: '#94A3B8', fontSize: 14, marginBottom: 20 }}>This cannot be undone.</p>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => handleDelete(deleteId)}
-                      style={{ flex: 1, height: 44, backgroundColor: '#EF4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>Delete</button>
+                      style={{ flex: 1, height: 44, backgroundColor: '#EF4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>
+                Delete
+              </button>
               <button onClick={() => setDeleteId(null)}
-                      style={{ flex: 1, height: 44, backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                      style={{ flex: 1, height: 44, backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>
