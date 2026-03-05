@@ -138,7 +138,7 @@ function TranchesModal({ symbol, tranches, currency, dateFormat, onClose, onEdit
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-      <div style={{ ...CARD, width: '100%', maxWidth: 760, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ ...CARD, width: '100%', maxWidth: 980, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {/* Modal header */}
         <div style={{ ...HDR, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
@@ -159,7 +159,7 @@ function TranchesModal({ symbol, tranches, currency, dateFormat, onClose, onEdit
         </div>
 
         {/* Tranches list */}
-        <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div style={{ overflow: 'auto', flex: 1 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ position: 'sticky', top: 0 }}>
               <tr style={{ backgroundColor: '#334155' }}>
@@ -341,6 +341,11 @@ export default function Investments({ data, setInvestments }) {
   const [priceStatus,    setPriceStatus]    = useState(() => loadPriceStatus());
   const [lastRefresh,    setLastRefresh]    = useState(() => loadLastRefresh());
 
+  // ── Add-form price mode ─────────────────────────────────
+  const [priceMode,         setPriceMode]         = useState('auto'); // 'auto' | 'manual'
+  const [fetchingFormPrice, setFetchingFormPrice] = useState(false);
+  const [formPriceError,    setFormPriceError]    = useState('');
+
   const showToast = useCallback((msg, type = 'success') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast({ message: '', type: 'success' }), 3000);
@@ -355,30 +360,67 @@ export default function Investments({ data, setInvestments }) {
     if (/\s/.test(form.symbol))                      e.symbol        = 'No spaces';
     if (!form.quantity || Number(form.quantity) <= 0) e.quantity     = 'Enter qty > 0';
     if (!form.purchasePrice || Number(form.purchasePrice) <= 0) e.purchasePrice = 'Enter price > 0';
-    if (!form.currentPrice || Number(form.currentPrice) <= 0)   e.currentPrice  = 'Enter price > 0';
+    // currentPrice validated separately depending on priceMode / editId
     return e;
   }
 
   // ── Add / update investment ────────────────────────────
-  function handleSubmit(ev) {
-    ev.preventDefault();
-    const errs = validate();
-    if (Object.keys(errs).length) { setErrors(errs); return; }
+  function commitInvestment(currentPriceVal) {
     const entry = {
       ...form,
       symbol:        form.symbol.toUpperCase().trim(),
       quantity:      Number(form.quantity),
       purchasePrice: Number(form.purchasePrice),
-      currentPrice:  Number(form.currentPrice),
+      currentPrice:  Number(currentPriceVal),
     };
     if (editId) {
       setInvestments(investments.map(inv => inv.id === editId ? { ...inv, ...entry } : inv));
       showToast('Investment updated ✓');
     } else {
       setInvestments([...investments, { ...entry, id: generateId('inv'), isClosed: false }]);
-      showToast('Investment added ✓');
     }
     setForm(blank); setErrors({}); setEditId(null); setFormOpen(false);
+    setPriceMode('auto'); setFormPriceError('');
+  }
+
+  async function handleSubmit(ev) {
+    ev.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    // ── Editing existing: current price field always shown ──
+    if (editId) {
+      if (!form.currentPrice || Number(form.currentPrice) <= 0) {
+        setErrors(e => ({ ...e, currentPrice: 'Enter price > 0' })); return;
+      }
+      commitInvestment(form.currentPrice);
+      return;
+    }
+
+    // ── New investment: manual mode ─────────────────────────
+    if (priceMode === 'manual') {
+      if (!form.currentPrice || Number(form.currentPrice) <= 0) {
+        setErrors(e => ({ ...e, currentPrice: 'Enter price > 0' })); return;
+      }
+      commitInvestment(form.currentPrice);
+      showToast(`${form.symbol.toUpperCase().trim()} added ✓`);
+      return;
+    }
+
+    // ── New investment: auto-fetch price ────────────────────
+    const sym = form.symbol.toUpperCase().trim();
+    setFetchingFormPrice(true);
+    setFormPriceError('');
+    const result = await fetchLivePrice(sym, form.type, currency);
+    setFetchingFormPrice(false);
+
+    if (result && result.price > 0) {
+      commitInvestment(result.price);
+      showToast(`${sym} added · ${result.source}: ${formatCurrency(result.price, currency)} ✓`);
+    } else {
+      setFormPriceError(`Couldn't auto-fetch price for "${sym}" — enter it manually below.`);
+      setPriceMode('manual');
+    }
   }
 
   function handleEdit(inv) {
@@ -447,6 +489,7 @@ export default function Investments({ data, setInvestments }) {
 
   function cancelForm() {
     setForm(blank); setEditId(null); setErrors({}); setFormOpen(false);
+    setPriceMode('auto'); setFormPriceError('');
   }
 
   // ── Live price refresh ──────────────────────────────────
@@ -644,20 +687,60 @@ export default function Investments({ data, setInvestments }) {
                          value={form.purchasePrice} style={INPUT}
                          onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))} />
                 </Field>
-                <Field label="Current Price (AUD)" required error={errors.currentPrice}>
-                  <input type="number" min="0" step="0.0001" placeholder="0.00"
-                         value={form.currentPrice} style={INPUT}
-                         onChange={e => setForm(f => ({ ...f, currentPrice: e.target.value }))} />
-                </Field>
+                {/* Current price: always show when editing; show when manual mode for new */}
+                {(editId || priceMode === 'manual') && (
+                  <Field label="Current Price (AUD)" required error={errors.currentPrice}>
+                    <input type="number" min="0" step="0.0001" placeholder="0.00"
+                           value={form.currentPrice} style={INPUT}
+                           onChange={e => setForm(f => ({ ...f, currentPrice: e.target.value }))} />
+                  </Field>
+                )}
                 <Field label="Notes (optional)">
                   <input type="text" placeholder="Optional notes…" value={form.notes} style={INPUT}
                          onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
                 </Field>
               </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+              {/* Auto-fetch price status — only for new investments */}
+              {!editId && (
+                <div style={{ marginTop: 14 }}>
+                  {priceMode === 'auto' && !formPriceError && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, color: '#475569' }}>
+                        📡 Current price auto-fetched on submit (Yahoo Finance / CoinGecko)
+                      </span>
+                      <button type="button" onClick={() => setPriceMode('manual')}
+                              style={{ fontSize: 11, color: '#06B6D4', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                        Enter manually instead
+                      </button>
+                    </div>
+                  )}
+                  {formPriceError && (
+                    <div style={{ backgroundColor: '#EF444415', border: '1px solid #EF444440', borderRadius: 8, padding: '10px 14px', marginBottom: 4 }}>
+                      <p style={{ fontSize: 12, color: '#EF4444', margin: '0 0 4px', fontWeight: 600 }}>⚠️ {formPriceError}</p>
+                      <button type="button"
+                              onClick={() => { setPriceMode('auto'); setFormPriceError(''); setForm(f => ({ ...f, currentPrice: '' })); }}
+                              style={{ fontSize: 11, color: '#06B6D4', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                        ↺ Try auto-fetch again
+                      </button>
+                    </div>
+                  )}
+                  {priceMode === 'manual' && !formPriceError && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, color: '#475569' }}>✏️ Manual price entry</span>
+                      <button type="button"
+                              onClick={() => { setPriceMode('auto'); setForm(f => ({ ...f, currentPrice: '' })); setFormPriceError(''); }}
+                              style={{ fontSize: 11, color: '#06B6D4', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                        Switch to auto-fetch
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
                 <button type="submit"
-                        style={{ height: 44, padding: '0 24px', backgroundColor: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-                  {editId ? 'Update Investment' : '+ Add Investment'}
+                        disabled={fetchingFormPrice}
+                        style={{ height: 44, padding: '0 24px', backgroundColor: fetchingFormPrice ? '#334155' : '#06B6D4', color: fetchingFormPrice ? '#94A3B8' : '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: fetchingFormPrice ? 'wait' : 'pointer' }}>
+                  {fetchingFormPrice ? '⏳ Fetching price…' : editId ? 'Update Investment' : '+ Add Investment'}
                 </button>
                 <button type="button" onClick={cancelForm}
                         style={{ height: 44, padding: '0 20px', backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
@@ -836,52 +919,6 @@ export default function Investments({ data, setInvestments }) {
         </div>
       </div>
 
-      {/* ── Holdings Heatmap ──────────────────────────────── */}
-      {heatTiles.length > 0 && (
-        <div style={{ ...CARD, padding: '20px' }}>
-          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>PORTFOLIO HEATMAP</h3>
-            <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Size = portfolio weight · Color = P&L</p>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, minHeight: 80 }}>
-            {heatTiles.map(tile => {
-              const isGain  = tile.pnl >= 0;
-              const bgCol   = isGain ? `rgba(16,185,129,${0.15 + Math.min(0.6, Math.abs(tile.pnlPct) / 30)})`
-                                     : `rgba(239,68,68,${0.15 + Math.min(0.6, Math.abs(tile.pnlPct) / 30)})`;
-              const bdrCol  = isGain ? '#10B981' : '#EF4444';
-              const minWidth = Math.max(80, tile.weight * 3);
-              return (
-                <div key={tile.symbol}
-                     onClick={() => setTrancheSymbol(tile.symbol)}
-                     title={`${tile.symbol}: ${formatCurrency(tile.value, currency)} | ${tile.pnlPct >= 0 ? '+' : ''}${tile.pnlPct.toFixed(2)}%`}
-                     style={{
-                       minWidth, flex: `${tile.weight} 0 ${minWidth}px`, height: 72,
-                       borderRadius: 8, border: `1px solid ${bdrCol}40`,
-                       backgroundColor: bgCol, padding: '8px 10px',
-                       display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                       cursor: 'pointer', transition: 'filter 0.15s',
-                     }}
-                     onMouseEnter={e => e.currentTarget.style.filter = 'brightness(1.15)'}
-                     onMouseLeave={e => e.currentTarget.style.filter = 'none'}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: '#F1F5F9', fontWeight: 800, fontSize: 13 }}>{tile.symbol}</span>
-                    {isGain ? <TrendingUp size={12} color="#10B981" /> : <TrendingDown size={12} color="#EF4444" />}
-                  </div>
-                  <div>
-                    <div style={{ color: isGain ? '#10B981' : '#EF4444', fontSize: 12, fontWeight: 700 }}>
-                      {tile.pnl >= 0 ? '+' : ''}{tile.pnlPct.toFixed(2)}%
-                    </div>
-                    <div style={{ color: '#94A3B8', fontSize: 10 }}>
-                      {formatCurrency(tile.pnl, currency)} · {tile.weight.toFixed(1)}%
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* ── Closed Positions toggle ───────────────────────── */}
       <div style={CARD}>
         <button
@@ -972,6 +1009,52 @@ export default function Investments({ data, setInvestments }) {
           </div>
         </div>
       </div>
+
+      {/* ── Holdings Heatmap (bottom of page) ────────────── */}
+      {heatTiles.length > 0 && (
+        <div style={{ ...CARD, padding: '20px' }}>
+          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>PORTFOLIO HEATMAP</h3>
+            <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Size = portfolio weight · Color = P&L · Click tile to view tranches</p>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, minHeight: 80 }}>
+            {heatTiles.map(tile => {
+              const isGain  = tile.pnl >= 0;
+              const bgCol   = isGain ? `rgba(16,185,129,${0.15 + Math.min(0.6, Math.abs(tile.pnlPct) / 30)})`
+                                     : `rgba(239,68,68,${0.15 + Math.min(0.6, Math.abs(tile.pnlPct) / 30)})`;
+              const bdrCol  = isGain ? '#10B981' : '#EF4444';
+              const minWidth = Math.max(80, tile.weight * 3);
+              return (
+                <div key={tile.symbol}
+                     onClick={() => setTrancheSymbol(tile.symbol)}
+                     title={`${tile.symbol}: ${formatCurrency(tile.value, currency)} | ${tile.pnlPct >= 0 ? '+' : ''}${tile.pnlPct.toFixed(2)}%`}
+                     style={{
+                       minWidth, flex: `${tile.weight} 0 ${minWidth}px`, height: 72,
+                       borderRadius: 8, border: `1px solid ${bdrCol}40`,
+                       backgroundColor: bgCol, padding: '8px 10px',
+                       display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                       cursor: 'pointer', transition: 'filter 0.15s',
+                     }}
+                     onMouseEnter={e => e.currentTarget.style.filter = 'brightness(1.15)'}
+                     onMouseLeave={e => e.currentTarget.style.filter = 'none'}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#F1F5F9', fontWeight: 800, fontSize: 13 }}>{tile.symbol}</span>
+                    {isGain ? <TrendingUp size={12} color="#10B981" /> : <TrendingDown size={12} color="#EF4444" />}
+                  </div>
+                  <div>
+                    <div style={{ color: isGain ? '#10B981' : '#EF4444', fontSize: 12, fontWeight: 700 }}>
+                      {tile.pnl >= 0 ? '+' : ''}{tile.pnlPct.toFixed(2)}%
+                    </div>
+                    <div style={{ color: '#94A3B8', fontSize: 10 }}>
+                      {formatCurrency(tile.pnl, currency)} · {tile.weight.toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Tranches modal ───────────────────────────────── */}
       {trancheSymbol && (() => {
