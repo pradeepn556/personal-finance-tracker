@@ -6,13 +6,13 @@
 //           P&L bar chart, Holdings heatmap, Collapsible form
 // ============================================================
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { Trash2, Edit2, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Plus, TrendingUp, TrendingDown } from 'lucide-react';
+import { Trash2, Edit2, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Plus, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 
 import { generateId } from '../../utils/storage';
 import {
@@ -21,6 +21,10 @@ import {
 } from '../../utils/calculations';
 import { formatCurrency, formatCurrencySigned, formatPercent } from '../../utils/formatters';
 import { formatDate, todayISO } from '../../utils/dateHelpers';
+import {
+  fetchLivePrice, loadPriceStatus, savePriceStatus,
+  loadLastRefresh, saveLastRefresh, isPriceStale, AUTO_TTL_MS,
+} from '../../utils/priceFetcher';
 
 // ── Constants ──────────────────────────────────────────────
 const TYPES = ['Stock', 'Crypto', 'ETF', 'Bond', 'Mutual Fund', 'Other'];
@@ -301,6 +305,16 @@ function TranchesModal({ symbol, tranches, currency, dateFormat, onClose, onEdit
   );
 }
 
+// ── Helpers ────────────────────────────────────────────────
+function timeAgo(isoStr) {
+  if (!isoStr) return null;
+  const s = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  if (s < 60)    return `${s}s ago`;
+  if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
 // ── Main Investments component ─────────────────────────────
 export default function Investments({ data, setInvestments }) {
   const { investments, settings } = data;
@@ -321,6 +335,11 @@ export default function Investments({ data, setInvestments }) {
 
   // Closed positions toggle
   const [showClosed, setShowClosed] = useState(false);
+
+  // ── Live price refresh ──────────────────────────────────
+  const [fetchingPrices, setFetchingPrices] = useState(false);
+  const [priceStatus,    setPriceStatus]    = useState(() => loadPriceStatus());
+  const [lastRefresh,    setLastRefresh]    = useState(() => loadLastRefresh());
 
   const showToast = useCallback((msg, type = 'success') => {
     setToast({ message: msg, type });
@@ -429,6 +448,78 @@ export default function Investments({ data, setInvestments }) {
   function cancelForm() {
     setForm(blank); setEditId(null); setErrors({}); setFormOpen(false);
   }
+
+  // ── Live price refresh ──────────────────────────────────
+  async function refreshPrices() {
+    if (fetchingPrices) return;
+    const liveActive = activeInvestments(investments);
+    if (liveActive.length === 0) return;
+
+    setFetchingPrices(true);
+
+    // Collect unique symbol → type mapping
+    const symbolMap = {};
+    liveActive.forEach(inv => { symbolMap[inv.symbol] = inv.type; });
+    const symbols = Object.keys(symbolMap);
+
+    // Fetch all symbols in parallel
+    const results = await Promise.all(
+      symbols.map(async sym => ({
+        sym,
+        result: await fetchLivePrice(sym, symbolMap[sym], currency),
+      }))
+    );
+
+    // Build status map + price update map
+    const newStatus    = { ...priceStatus };
+    const priceUpdates = {};
+    const now          = new Date().toISOString();
+
+    results.forEach(({ sym, result }) => {
+      if (result && result.price > 0) {
+        newStatus[sym]    = { status: 'ok',   source: result.source, updatedAt: now };
+        priceUpdates[sym] = result.price;
+      } else {
+        newStatus[sym] = { status: 'fail', updatedAt: now };
+      }
+    });
+
+    // Update investment records with live prices so all tabs stay in sync
+    const updated = Object.keys(priceUpdates).length;
+    if (updated > 0) {
+      setInvestments(prev =>
+        prev.map(inv =>
+          priceUpdates[inv.symbol] !== undefined && !inv.isClosed
+            ? { ...inv, currentPrice: priceUpdates[inv.symbol] }
+            : inv
+        )
+      );
+    }
+
+    setPriceStatus(newStatus);
+    savePriceStatus(newStatus);
+    const ts = new Date().toISOString();
+    setLastRefresh(ts);
+    saveLastRefresh(ts);
+    setFetchingPrices(false);
+
+    const failed = symbols.length - updated;
+    showToast(
+      updated === symbols.length
+        ? `✓ All ${updated} price${updated !== 1 ? 's' : ''} updated`
+        : `✓ ${updated}/${symbols.length} updated${failed > 0 ? ` · ${failed} not found` : ''}`,
+      updated > 0 ? 'success' : 'error'
+    );
+  }
+
+  // Auto-refresh on mount if prices are over 1 hour old
+  useEffect(() => {
+    const liveActive = activeInvestments(investments);
+    if (liveActive.length > 0 && isPriceStale(loadLastRefresh(), AUTO_TTL_MS)) {
+      refreshPrices();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally run once on mount
 
   // ── Active / closed split ──────────────────────────────
   const active = useMemo(() => activeInvestments(investments), [investments]);
@@ -580,9 +671,37 @@ export default function Investments({ data, setInvestments }) {
 
       {/* ── Holdings table (grouped by symbol) ───────────── */}
       <div style={{ ...CARD, padding: '20px' }}>
-        <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-          <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>HOLDINGS</h3>
-          <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Click a row to view individual tranches</p>
+        <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>HOLDINGS</h3>
+            <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Click a row to view individual tranches</p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {lastRefresh && (
+              <span style={{ color: '#475569', fontSize: 11, whiteSpace: 'nowrap' }}>
+                📡 {timeAgo(lastRefresh)}
+              </span>
+            )}
+            <button
+              onClick={refreshPrices}
+              disabled={fetchingPrices || investments.filter(i => !i.isClosed).length === 0}
+              title="Fetch live prices: Yahoo Finance (stocks, ASX .AX first) · CoinGecko (crypto)"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                height: 30, padding: '0 12px',
+                backgroundColor: fetchingPrices ? '#1A2332' : '#06B6D415',
+                color: fetchingPrices ? '#475569' : '#06B6D4',
+                border: '1px solid #06B6D430',
+                borderRadius: 6, fontSize: 12, fontWeight: 600,
+                cursor: fetchingPrices ? 'wait' : 'pointer',
+                opacity: investments.filter(i => !i.isClosed).length === 0 ? 0.4 : 1,
+                transition: 'all 0.2s',
+              }}
+            >
+              <RefreshCw size={12} className={fetchingPrices ? 'animate-spin' : ''} />
+              {fetchingPrices ? 'Fetching…' : 'Live Prices'}
+            </button>
+          </div>
         </div>
 
         {holdings.length === 0 ? (
@@ -631,7 +750,14 @@ export default function Investments({ data, setInvestments }) {
                       </td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{h.qty.toLocaleString()}</td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.avgBuy, currency)}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.curPri, currency)}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace', fontSize: 12 }}>
+                        {priceStatus[h.symbol]?.status === 'ok'
+                          ? <span title={`Live · ${priceStatus[h.symbol].source}`} style={{ color: '#10B981', fontSize: 9, verticalAlign: 'middle', marginRight: 5 }}>●</span>
+                          : priceStatus[h.symbol]?.status === 'fail'
+                          ? <span title="Price fetch failed — showing manual price" style={{ color: '#EF4444', fontSize: 9, verticalAlign: 'middle', marginRight: 5 }}>○</span>
+                          : null}
+                        <span style={{ color: '#94A3B8' }}>{formatCurrency(h.curPri, currency)}</span>
+                      </td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.cost, currency)}</td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#F1F5F9', fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrency(h.value, currency)}</td>
                       <td style={{ padding: '12px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrencySigned(h.pnl, currency)}</td>
