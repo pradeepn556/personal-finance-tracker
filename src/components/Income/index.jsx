@@ -1,571 +1,456 @@
 // ============================================================
-// Income/index.jsx — Track all income sources
-// Sections: Entry form, Summary cards, Pie chart,
-//           Monthly bar chart, Filterable table with edit/delete
+// Income/index.jsx — Income tracking, v2 (redesigned)
+// New: incomeFrom + recipient fields, collapsible form,
+//      professional table, improved charts
 // ============================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer,
+  ResponsiveContainer, Legend,
 } from 'recharts';
-import {
-  Plus, ChevronUp, ChevronDown, Pencil, Trash2,
-  X, Check, ChevronLeft, ChevronRight, RotateCcw,
-} from 'lucide-react';
+import { Trash2, Edit2, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 
 import { generateId } from '../../utils/storage';
 import { getIncomeStats, getMonthlyTrend, filterCurrentMonth } from '../../utils/calculations';
-import { formatCurrency, formatPercent } from '../../utils/formatters';
+import { formatCurrency } from '../../utils/formatters';
 import { formatDate, todayISO, isFutureDate } from '../../utils/dateHelpers';
 
-// ── Constants ─────────────────────────────────────────────────
-const SOURCES = ['Salary', 'Bonus', 'Freelance', 'Investment Returns', 'Rental Income', 'Other'];
-const PIE_COLOURS = ['#06B6D4', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#64748B'];
-const ROWS_PER_PAGE = 20;
+// ── Constants ──────────────────────────────────────────────
+const SOURCES     = ['Salary', 'Bonus', 'Freelance', 'Investment Returns', 'Rental Income', 'Other'];
+const INCOME_FROM = ['Main Job', 'Side Hustle', 'Partner', 'Other'];
+const RECIPIENTS  = ['Me', 'Partner', 'Shared'];
+const PAGE_SIZE   = 20;
 
-const EMPTY_FORM = { date: todayISO(), source: '', amount: '', notes: '' };
+const CHART_COLOURS = ['#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
-// ── Toast notification ────────────────────────────────────────
-function Toast({ message, type = 'success', onClose }) {
-  const bg = type === 'success' ? '#10B981' : '#EF4444';
+// ── Design tokens ──────────────────────────────────────────
+const CARD  = { backgroundColor: '#1E2139', border: '1px solid #334155', borderRadius: '10px' };
+const HDR   = { backgroundColor: '#1A2332', borderBottom: '1px solid #334155' };
+const INPUT = {
+  width: '100%', backgroundColor: '#0F172A', border: '1px solid #334155',
+  borderRadius: '8px', padding: '10px 12px', color: '#F1F5F9',
+  fontSize: '14px', outline: 'none',
+};
+const LABEL = {
+  fontSize: '11px', fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.08em',
+  display: 'block', marginBottom: '6px', textTransform: 'uppercase',
+};
+
+// ── Field wrapper ──────────────────────────────────────────
+function Field({ label, required, error, children }) {
   return (
-    <div className="fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg shadow-xl text-white text-sm font-medium"
-         style={{ backgroundColor: bg, minWidth: 260 }}>
-      {type === 'success' ? <Check size={16} /> : <X size={16} />}
-      {message}
-      <button onClick={onClose} className="ml-auto opacity-70 hover:opacity-100"><X size={14} /></button>
+    <div>
+      <label style={LABEL}>
+        {label}{required && <span style={{ color: '#EF4444', marginLeft: 2 }}>*</span>}
+      </label>
+      {children}
+      {error && <p style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{error}</p>}
     </div>
   );
 }
 
-// ── Summary stat card ─────────────────────────────────────────
-function StatCard({ label, value, sub }) {
+// ── Toast ──────────────────────────────────────────────────
+function Toast({ message, type }) {
+  if (!message) return null;
+  const colour = type === 'success' ? '#10B981' : '#EF4444';
+  const Icon   = type === 'success' ? CheckCircle : AlertCircle;
   return (
-    <div className="rounded-xl p-4" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-      <p className="text-xs mb-1" style={{ color: '#64748B' }}>{label}</p>
-      <p className="text-xl font-bold font-mono" style={{ color: '#F1F5F9' }}>{value}</p>
-      {sub && <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>{sub}</p>}
+    <div style={{
+      position: 'fixed', bottom: 24, right: 24, zIndex: 60,
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '12px 18px', borderRadius: 12,
+      backgroundColor: '#1A2332', border: `1px solid ${colour}`,
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    }}>
+      <Icon size={16} color={colour} />
+      <span style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 600 }}>{message}</span>
     </div>
   );
 }
 
-// ── Custom chart tooltip ──────────────────────────────────────
-function ChartTooltip({ active, payload, label, currency }) {
+// ── Recharts tooltip ───────────────────────────────────────
+function ChartTip({ active, payload, label, currency = 'AUD' }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg p-3 text-sm shadow-xl"
-         style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-      <p className="font-semibold mb-1" style={{ color: '#F1F5F9' }}>{label}</p>
+    <div style={{ backgroundColor: '#1A2332', border: '1px solid #334155', borderRadius: 8, padding: '10px 14px' }}>
+      <p style={{ color: '#CBD5E1', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{label}</p>
       {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color || '#06B6D4' }}>
-          {p.name}: {formatCurrency(p.value, currency)}
-        </p>
+        <p key={i} style={{ color: p.color, fontSize: 12 }}>{p.name}: {formatCurrency(p.value, currency)}</p>
       ))}
     </div>
   );
 }
 
-// ── Main Income component ─────────────────────────────────────
+// ── Stat card ──────────────────────────────────────────────
+function StatCard({ label, value, sub }) {
+  return (
+    <div style={{ ...CARD, padding: '20px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CBD5E1', textTransform: 'uppercase', marginBottom: 8 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 26, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9' }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── Icon button ────────────────────────────────────────────
+function IconBtn({ onClick, title, icon: Icon, colour = '#94A3B8', hoverBg = '#334155' }) {
+  return (
+    <button onClick={onClick} title={title}
+            style={{ width: 30, height: 30, borderRadius: 6, border: 'none', backgroundColor: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onMouseEnter={e => e.currentTarget.style.backgroundColor = hoverBg}
+            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+      <Icon size={13} color={colour} />
+    </button>
+  );
+}
+
+// ── Main Income component ──────────────────────────────────
 export default function Income({ data, setIncome }) {
   const { income, settings } = data;
-  const currency = settings?.currency || 'AUD';
+  const currency   = settings?.currency   || 'AUD';
   const dateFormat = settings?.dateFormat || 'DD/MM/YYYY';
 
-  // Form state
-  const [form,        setForm]        = useState(EMPTY_FORM);
-  const [editId,      setEditId]      = useState(null);
-  const [formOpen,    setFormOpen]    = useState(true);
-  const [errors,      setErrors]      = useState({});
-  const [toast,       setToast]       = useState(null);
-
-  // Filter state
-  const [filterSource, setFilterSource] = useState('All');
-  const [filterFrom,   setFilterFrom]   = useState('');
-  const [filterTo,     setFilterTo]     = useState('');
-  const [searchText,   setSearchText]   = useState('');
-
-  // Table state
-  const [sortCol,  setSortCol]  = useState('date');
-  const [sortDir,  setSortDir]  = useState('desc');
-  const [page,     setPage]     = useState(1);
-
-  // Delete confirmation
+  // ── Form state ──────────────────────────────────────────
+  const blank = { date: todayISO(), source: '', incomeFrom: '', recipient: '', amount: '', notes: '' };
+  const [form,     setForm]     = useState(blank);
+  const [errors,   setErrors]   = useState({});
+  const [editId,   setEditId]   = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [toast,    setToast]    = useState({ message: '', type: 'success' });
   const [deleteId, setDeleteId] = useState(null);
 
-  // ── Show toast for 3s ───────────────────────────────────────
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
+  // ── Filter / sort / paginate ────────────────────────────
+  const [fSource,   setFSource]   = useState('');
+  const [fDateFrom, setFDateFrom] = useState('');
+  const [fDateTo,   setFDateTo]   = useState('');
+  const [sortKey,   setSortKey]   = useState('date');
+  const [sortDir,   setSortDir]   = useState('desc');
+  const [page,      setPage]      = useState(1);
 
-  // ── Form validation ─────────────────────────────────────────
-  const validate = (f = form) => {
+  const showToast = useCallback((msg, type = 'success') => {
+    setToast({ message: msg, type });
+    setTimeout(() => setToast({ message: '', type: 'success' }), 3000);
+  }, []);
+
+  function validate() {
     const e = {};
-    if (!f.date)               e.date   = 'Date is required';
-    if (isFutureDate(f.date))  e.date   = 'Date cannot be in the future';
-    if (!f.source)             e.source = 'Source is required';
-    if (!f.amount || Number(f.amount) <= 0)
-                               e.amount = 'Amount must be greater than 0';
-    if (f.notes.length > 255)  e.notes  = 'Max 255 characters';
+    if (!form.date)                              e.date   = 'Date is required';
+    if (isFutureDate(form.date))                 e.date   = 'Date cannot be in the future';
+    if (!form.source)                            e.source = 'Source is required';
+    if (!form.amount || Number(form.amount) <= 0) e.amount = 'Enter a valid amount';
     return e;
-  };
+  }
 
-  const isValid = Object.keys(validate()).length === 0;
-
-  // ── Handle form field changes ───────────────────────────────
-  const handleChange = (field, value) => {
-    const updated = { ...form, [field]: value };
-    setForm(updated);
-    const e = validate(updated);
-    setErrors(prev => ({ ...prev, [field]: e[field] }));
-  };
-
-  // ── Submit — add or update ──────────────────────────────────
-  const handleSubmit = () => {
-    const e = validate();
-    if (Object.keys(e).length) { setErrors(e); return; }
-
-    const now = new Date().toISOString();
+  function handleSubmit(ev) {
+    ev.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
     if (editId) {
-      // Update existing entry
-      setIncome(income.map(i =>
-        i.id === editId
-          ? { ...i, ...form, amount: Number(form.amount), updatedAt: now }
-          : i
-      ));
-      showToast('✓ Income entry updated successfully');
-      setEditId(null);
+      setIncome(income.map(i => i.id === editId ? { ...i, ...form, amount: Number(form.amount) } : i));
+      showToast('Income updated ✓');
     } else {
-      // Add new entry
-      const entry = {
-        id:        generateId('inc'),
-        ...form,
-        amount:    Number(form.amount),
-        createdAt: now,
-        updatedAt: now,
-      };
-      setIncome([...income, entry]);
-      showToast('✓ Income entry added successfully');
+      setIncome([...income, { ...form, amount: Number(form.amount), id: generateId('inc') }]);
+      showToast('Income added ✓');
     }
-    setForm(EMPTY_FORM);
-    setErrors({});
-  };
+    setForm(blank); setErrors({}); setEditId(null); setFormOpen(false);
+  }
 
-  // ── Edit — populate form ────────────────────────────────────
-  const handleEdit = (entry) => {
-    setForm({ date: entry.date, source: entry.source, amount: String(entry.amount), notes: entry.notes || '' });
-    setEditId(entry.id);
-    setFormOpen(true);
+  function handleEdit(entry) {
+    setForm({
+      date: entry.date, source: entry.source, incomeFrom: entry.incomeFrom || '',
+      recipient: entry.recipient || '', amount: String(entry.amount), notes: entry.notes || '',
+    });
+    setEditId(entry.id); setErrors({}); setFormOpen(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }
 
-  // ── Delete — confirmed ──────────────────────────────────────
-  const handleDelete = (id) => {
+  function handleDelete(id) {
     setIncome(income.filter(i => i.id !== id));
-    setDeleteId(null);
-    showToast('Income entry deleted', 'error');
-  };
+    setDeleteId(null); showToast('Entry deleted', 'error');
+  }
 
-  // ── Cancel edit ─────────────────────────────────────────────
-  const handleCancelEdit = () => {
-    setForm(EMPTY_FORM);
-    setEditId(null);
-    setErrors({});
-  };
+  function cancelForm() {
+    setForm(blank); setEditId(null); setErrors({}); setFormOpen(false);
+  }
 
-  // ── Sorting ─────────────────────────────────────────────────
-  const handleSort = (col) => {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortCol(col); setSortDir('desc'); }
-    setPage(1);
-  };
+  // ── Computed ────────────────────────────────────────────
+  const stats     = getIncomeStats(income);
+  const trend     = getMonthlyTrend(income, [], 12);
+  const thisMonth = filterCurrentMonth(income).reduce((s, i) => s + Number(i.amount), 0);
+  const thisYear  = income.filter(i => new Date(i.date).getFullYear() === new Date().getFullYear())
+    .reduce((s, i) => s + Number(i.amount), 0);
 
-  // ── Filtered + sorted income ─────────────────────────────────
-  const filtered = useMemo(() => {
-    return income
-      .filter(i => {
-        if (filterSource !== 'All' && i.source !== filterSource) return false;
-        if (filterFrom && i.date < filterFrom) return false;
-        if (filterTo   && i.date > filterTo)   return false;
-        if (searchText && !i.notes?.toLowerCase().includes(searchText.toLowerCase()) &&
-            !i.source.toLowerCase().includes(searchText.toLowerCase())) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        let va = a[sortCol], vb = b[sortCol];
-        if (sortCol === 'amount') { va = Number(va); vb = Number(vb); }
-        if (va < vb) return sortDir === 'asc' ? -1 :  1;
-        if (va > vb) return sortDir === 'asc' ?  1 : -1;
-        return 0;
-      });
-  }, [income, filterSource, filterFrom, filterTo, searchText, sortCol, sortDir]);
-
-  // ── Pagination ───────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
-  const paginated  = filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
-
-  // ── Chart data ───────────────────────────────────────────────
   const pieData = useMemo(() => {
-    const grouped = {};
-    income.forEach(i => { grouped[i.source] = (grouped[i.source] || 0) + Number(i.amount); });
-    return Object.entries(grouped).map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }));
+    const g = {};
+    income.forEach(i => { g[i.source] = (g[i.source] || 0) + Number(i.amount); });
+    return Object.entries(g).map(([name, value]) => ({ name, value }));
   }, [income]);
 
-  const barData = useMemo(() => getMonthlyTrend(income, [], 12).map(m => ({
-    month: m.month, income: m.income,
-  })), [income]);
+  const filtered = useMemo(() => {
+    let rows = [...income];
+    if (fSource)   rows = rows.filter(i => i.source === fSource);
+    if (fDateFrom) rows = rows.filter(i => i.date >= fDateFrom);
+    if (fDateTo)   rows = rows.filter(i => i.date <= fDateTo);
+    rows.sort((a, b) => {
+      let va = a[sortKey], vb = b[sortKey];
+      if (sortKey === 'amount') { va = Number(va); vb = Number(vb); }
+      return sortDir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+    });
+    return rows;
+  }, [income, fSource, fDateFrom, fDateTo, sortKey, sortDir]);
 
-  // ── Stats ────────────────────────────────────────────────────
-  const stats = useMemo(() => getIncomeStats(income), [income]);
+  const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const filteredSum = filtered.reduce((s, i) => s + Number(i.amount), 0);
 
-  // ── Sort header helper ───────────────────────────────────────
-  const SortIcon = ({ col }) => {
-    if (sortCol !== col) return <ChevronUp size={12} className="opacity-30" />;
-    return sortDir === 'asc' ? <ChevronUp size={12} color="#06B6D4" /> : <ChevronDown size={12} color="#06B6D4" />;
-  };
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+    setPage(1);
+  }
+  const si = k => sortKey === k ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
   return (
-    <div className="space-y-6">
-      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-      {/* ── Page header ──────────────────────────────────── */}
+      {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold" style={{ color: '#F1F5F9' }}>Income</h1>
-        <p className="text-sm mt-1" style={{ color: '#64748B' }}>Track all your income sources</p>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: '#F1F5F9', margin: 0 }}>INCOME</h1>
+        <p style={{ color: '#475569', fontSize: 13, marginTop: 2 }}>
+          This Month: <strong style={{ color: '#10B981' }}>{formatCurrency(thisMonth, currency)}</strong>
+          {' | '}
+          This Year: <strong style={{ color: '#10B981' }}>{formatCurrency(thisYear, currency)}</strong>
+        </p>
       </div>
 
-      {/* ── Entry form ───────────────────────────────────── */}
-      <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-        {/* Form header / toggle */}
+      {/* ── Collapsible form ────────────────────────────── */}
+      <div style={CARD}>
         <button
-          onClick={() => setFormOpen(o => !o)}
-          className="w-full flex items-center justify-between px-5 py-4 text-left"
-          style={{ borderBottom: formOpen ? '1px solid #334155' : 'none' }}
+          onClick={() => { if (editId) { cancelForm(); } else { setFormOpen(o => !o); } }}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer',
+          }}
+          aria-expanded={formOpen}
         >
-          <span className="font-semibold" style={{ color: '#F1F5F9' }}>
-            {editId ? '✏️ Edit Income Entry' : '+ Add Income Entry'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: '#06B6D420', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Plus size={14} color="#06B6D4" />
+            </div>
+            <span style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700 }}>
+              {editId ? '✏️ EDIT INCOME ENTRY' : '+ ADD INCOME ENTRY'}
+            </span>
+          </div>
           {formOpen ? <ChevronUp size={18} color="#64748B" /> : <ChevronDown size={18} color="#64748B" />}
         </button>
 
-        {formOpen && (
-          <div className="p-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Date */}
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: '#94A3B8' }}>
-                  Date <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <input
-                  type="date"
-                  value={form.date}
-                  max={todayISO()}
-                  onChange={e => handleChange('date', e.target.value)}
-                  className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-all"
-                  style={{
-                    backgroundColor: '#0F172A',
-                    border: `1px solid ${errors.date ? '#EF4444' : '#334155'}`,
-                    color: '#F1F5F9',
-                  }}
-                />
-                {errors.date && <p className="text-xs mt-1" style={{ color: '#EF4444' }}>{errors.date}</p>}
+        <div style={{
+          maxHeight: formOpen ? '700px' : '0',
+          overflow: 'hidden',
+          opacity: formOpen ? 1 : 0,
+          transition: 'max-height 0.3s ease, opacity 0.25s ease',
+        }}>
+          <div style={{ borderTop: '1px solid #334155', padding: '20px' }}>
+            <form onSubmit={handleSubmit}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" style={{ gap: 16 }}>
+                <Field label="Date" required error={errors.date}>
+                  <input type="date" value={form.date} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                </Field>
+                <Field label="Source" required error={errors.source}>
+                  <select value={form.source} style={INPUT}
+                          onChange={e => setForm(f => ({ ...f, source: e.target.value }))}>
+                    <option value="">Select source…</option>
+                    {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </Field>
+                <Field label="Amount (AUD)" required error={errors.amount}>
+                  <input type="number" min="0" step="0.01" placeholder="0.00"
+                         value={form.amount} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+                </Field>
+                <Field label="Income From">
+                  <select value={form.incomeFrom} style={INPUT}
+                          onChange={e => setForm(f => ({ ...f, incomeFrom: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {INCOME_FROM.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </Field>
+                <Field label="Recipient">
+                  <select value={form.recipient} style={INPUT}
+                          onChange={e => setForm(f => ({ ...f, recipient: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {RECIPIENTS.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </Field>
+                <Field label="Notes (optional)">
+                  <input type="text" placeholder="Any notes…" value={form.notes} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                </Field>
               </div>
-
-              {/* Source */}
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: '#94A3B8' }}>
-                  Source <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <select
-                  value={form.source}
-                  onChange={e => handleChange('source', e.target.value)}
-                  className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
-                  style={{
-                    backgroundColor: '#0F172A',
-                    border: `1px solid ${errors.source ? '#EF4444' : '#334155'}`,
-                    color: form.source ? '#F1F5F9' : '#64748B',
-                  }}
-                >
-                  <option value="">Select source…</option>
-                  {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                {errors.source && <p className="text-xs mt-1" style={{ color: '#EF4444' }}>{errors.source}</p>}
-              </div>
-
-              {/* Amount */}
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: '#94A3B8' }}>
-                  Amount ({currency}) <span style={{ color: '#EF4444' }}>*</span>
-                </label>
-                <input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={form.amount}
-                  onChange={e => handleChange('amount', e.target.value)}
-                  className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
-                  style={{
-                    backgroundColor: '#0F172A',
-                    border: `1px solid ${errors.amount ? '#EF4444' : '#334155'}`,
-                    color: '#F1F5F9',
-                  }}
-                />
-                {errors.amount && <p className="text-xs mt-1" style={{ color: '#EF4444' }}>{errors.amount}</p>}
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: '#94A3B8' }}>
-                  Notes <span style={{ color: '#64748B' }}>(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. January salary, Q4 bonus"
-                  maxLength={255}
-                  value={form.notes}
-                  onChange={e => handleChange('notes', e.target.value)}
-                  className="w-full rounded-lg px-3 py-2.5 text-sm outline-none"
-                  style={{
-                    backgroundColor: '#0F172A',
-                    border: `1px solid ${errors.notes ? '#EF4444' : '#334155'}`,
-                    color: '#F1F5F9',
-                  }}
-                />
-                <p className="text-xs mt-1 text-right" style={{ color: '#475569' }}>
-                  {form.notes.length}/255
-                </p>
-              </div>
-            </div>
-
-            {/* Buttons */}
-            <div className="flex flex-wrap gap-3 mt-4">
-              <button
-                onClick={handleSubmit}
-                disabled={!isValid}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all"
-                style={{
-                  backgroundColor: isValid ? '#06B6D4' : '#334155',
-                  color: isValid ? '#fff' : '#64748B',
-                  cursor: isValid ? 'pointer' : 'not-allowed',
-                }}
-              >
-                <Plus size={16} />
-                {editId ? 'Update Income' : 'Add Income'}
-              </button>
-              {editId && (
-                <button
-                  onClick={handleCancelEdit}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold"
-                  style={{ border: '1px solid #334155', color: '#94A3B8', backgroundColor: 'transparent' }}
-                >
-                  <X size={16} /> Cancel Edit
+              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                <button type="submit"
+                        style={{ height: 44, padding: '0 24px', backgroundColor: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                  {editId ? 'Update Entry' : '+ Add Income'}
                 </button>
-              )}
-              <button
-                onClick={() => { setForm(EMPTY_FORM); setErrors({}); }}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold"
-                style={{ border: '1px solid #334155', color: '#94A3B8', backgroundColor: 'transparent' }}
-              >
-                <RotateCcw size={15} /> Reset
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Summary cards ────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="This Month"  value={formatCurrency(stats.thisMonth, currency)} />
-        <StatCard label="This Year"   value={formatCurrency(stats.thisYear, currency)} />
-        <StatCard label="Monthly Avg" value={formatCurrency(stats.average, currency)} />
-        <StatCard
-          label="Highest Entry"
-          value={formatCurrency(stats.highest, currency)}
-          sub={stats.highestSource || '—'}
-        />
-      </div>
-
-      {/* ── Charts ───────────────────────────────────────── */}
-      {income.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-          {/* Income by Source — Pie */}
-          <div className="rounded-xl p-5" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-            <h3 className="font-semibold mb-4" style={{ color: '#F1F5F9' }}>Income by Source</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%" cy="50%"
-                  outerRadius={80}
-                  dataKey="value"
-                  nameKey="name"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  labelLine={false}
-                >
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLOURS[i % PIE_COLOURS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(v) => formatCurrency(v, currency)}
-                  contentStyle={{ backgroundColor: '#1E2139', border: '1px solid #334155', borderRadius: 8 }}
-                  labelStyle={{ color: '#F1F5F9' }}
-                />
-                <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Monthly Income Trend — Bar */}
-          <div className="rounded-xl p-5" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-            <h3 className="font-semibold mb-4" style={{ color: '#F1F5F9' }}>Monthly Income (12 months)</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={barData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="month" tick={{ fill: '#64748B', fontSize: 11 }} tickLine={false} />
-                <YAxis tick={{ fill: '#64748B', fontSize: 11 }} tickLine={false} axisLine={false}
-                       tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip content={<ChartTooltip currency={currency} />} />
-                <Bar dataKey="income" name="Income" fill="#06B6D4" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+                <button type="button" onClick={cancelForm}
+                        style={{ height: 44, padding: '0 20px', backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  {editId ? 'Cancel' : 'Reset'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* ── Filters ──────────────────────────────────────── */}
-      <div className="rounded-xl p-4" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-        <div className="flex flex-wrap gap-3 items-end">
-          {/* Source filter */}
-          <div className="flex-1 min-w-36">
-            <label className="block text-xs mb-1" style={{ color: '#64748B' }}>Source</label>
-            <select
-              value={filterSource}
-              onChange={e => { setFilterSource(e.target.value); setPage(1); }}
-              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-              style={{ backgroundColor: '#0F172A', border: '1px solid #334155', color: '#F1F5F9' }}
-            >
-              <option value="All">All Sources</option>
+      {/* ── Stat cards ──────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+        <StatCard label="This Month"    value={formatCurrency(stats.thisMonth, currency)} />
+        <StatCard label="This Year"     value={formatCurrency(stats.thisYear,  currency)} />
+        <StatCard label="Monthly Avg"   value={formatCurrency(stats.average,   currency)} />
+        <StatCard label="Highest Entry" value={formatCurrency(stats.highest,   currency)} sub={stats.highestSource} />
+      </div>
+
+      {/* ── Charts ──────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 16 }}>
+        {/* Pie */}
+        <div style={{ ...CARD, padding: '20px' }}>
+          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>INCOME BY SOURCE</h3>
+          </div>
+          {pieData.length === 0 ? (
+            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>📭 No data yet.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={90}
+                     dataKey="value" nameKey="name"
+                     label={({ name, percent }) => `${name.split(' ')[0]} ${(percent * 100).toFixed(0)}%`}
+                     labelLine={false}>
+                  {pieData.map((_, i) => <Cell key={i} fill={CHART_COLOURS[i % CHART_COLOURS.length]} />)}
+                </Pie>
+                <Tooltip formatter={v => formatCurrency(v, currency)} />
+                <Legend wrapperStyle={{ fontSize: 11, color: '#94A3B8' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+        {/* Bar */}
+        <div style={{ ...CARD, padding: '20px' }}>
+          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>MONTHLY INCOME (12 months)</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
+              <XAxis dataKey="month" tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} />
+              <YAxis tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} axisLine={false}
+                     tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+              <Tooltip content={<ChartTip currency={currency} />} />
+              <Bar dataKey="income" name="Income" fill="#10B981" radius={[3,3,0,0]} maxBarSize={32} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── Filters ─────────────────────────────────────── */}
+      <div style={{ ...CARD, padding: '20px' }}>
+        <h3 style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filter Entries</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3" style={{ gap: 12 }}>
+          <div>
+            <label style={LABEL}>Source</label>
+            <select value={fSource} style={INPUT}
+                    onChange={e => { setFSource(e.target.value); setPage(1); }}>
+              <option value="">All Sources</option>
               {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
-
-          {/* Date from */}
-          <div className="flex-1 min-w-36">
-            <label className="block text-xs mb-1" style={{ color: '#64748B' }}>From</label>
-            <input type="date" value={filterFrom}
-              onChange={e => { setFilterFrom(e.target.value); setPage(1); }}
-              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-              style={{ backgroundColor: '#0F172A', border: '1px solid #334155', color: '#F1F5F9' }} />
+          <div>
+            <label style={LABEL}>From</label>
+            <input type="date" value={fDateFrom} style={INPUT}
+                   onChange={e => { setFDateFrom(e.target.value); setPage(1); }} />
           </div>
-
-          {/* Date to */}
-          <div className="flex-1 min-w-36">
-            <label className="block text-xs mb-1" style={{ color: '#64748B' }}>To</label>
-            <input type="date" value={filterTo}
-              onChange={e => { setFilterTo(e.target.value); setPage(1); }}
-              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-              style={{ backgroundColor: '#0F172A', border: '1px solid #334155', color: '#F1F5F9' }} />
+          <div>
+            <label style={LABEL}>To</label>
+            <input type="date" value={fDateTo} style={INPUT}
+                   onChange={e => { setFDateTo(e.target.value); setPage(1); }} />
           </div>
-
-          {/* Reset filters */}
-          <button
-            onClick={() => { setFilterSource('All'); setFilterFrom(''); setFilterTo(''); setSearchText(''); setPage(1); }}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-            style={{ border: '1px solid #334155', color: '#94A3B8', backgroundColor: 'transparent' }}
-          >
-            <RotateCcw size={14} /> Reset
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+          <span style={{ color: '#64748B', fontSize: 12 }}>
+            {filtered.length} result{filtered.length !== 1 ? 's' : ''} — {formatCurrency(filteredSum, currency)}
+          </span>
+          <button onClick={() => { setFSource(''); setFDateFrom(''); setFDateTo(''); setPage(1); }}
+                  style={{ height: 32, padding: '0 14px', border: '1px solid #334155', borderRadius: 6, backgroundColor: 'transparent', color: '#94A3B8', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            Reset
           </button>
         </div>
       </div>
 
-      {/* ── Table ────────────────────────────────────────── */}
-      <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-        {/* Table header */}
-        <div className="flex items-center justify-between px-5 py-3"
-             style={{ borderBottom: '1px solid #334155' }}>
-          <h3 className="font-semibold" style={{ color: '#F1F5F9' }}>Income Entries</h3>
-          <span className="text-sm" style={{ color: '#64748B' }}>
-            Showing {Math.min(filtered.length, (page - 1) * ROWS_PER_PAGE + paginated.length)} of {filtered.length}
-          </span>
-        </div>
+      {/* ── Table ───────────────────────────────────────── */}
+      <div style={{ ...CARD, padding: '20px' }}>
+        <h3 style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          All Income Entries
+        </h3>
 
         {income.length === 0 ? (
-          <div className="py-12 text-center" style={{ color: '#64748B' }}>
-            No income entries yet. Add your first entry above.
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="py-12 text-center" style={{ color: '#64748B' }}>
-            No entries match your filters.
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748B', fontSize: 14 }}>
+            📭 No income entries yet. Add your first using the form above.
           </div>
         ) : (
           <>
-            {/* Desktop table */}
-            <div className="overflow-x-auto hidden md:block">
-              <table className="w-full text-sm">
+            <div className="hidden md:block" style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#334155' }}>
                     {[
-                      { key: 'date',   label: 'Date'   },
-                      { key: 'source', label: 'Source' },
+                      { key: 'date', label: 'Date' }, { key: 'source', label: 'Source' },
+                      { key: 'incomeFrom', label: 'From' }, { key: 'recipient', label: 'Recipient' },
                       { key: 'amount', label: 'Amount' },
-                      { key: 'notes',  label: 'Notes', sortable: false },
                     ].map(col => (
-                      <th
-                        key={col.key}
-                        onClick={() => col.sortable !== false && handleSort(col.key)}
-                        className="px-4 py-3 text-left font-semibold select-none"
-                        style={{
-                          color: '#94A3B8',
-                          cursor: col.sortable !== false ? 'pointer' : 'default',
-                        }}
-                      >
-                        <div className="flex items-center gap-1">
-                          {col.label}
-                          {col.sortable !== false && <SortIcon col={col.key} />}
-                        </div>
+                      <th key={col.key} onClick={() => toggleSort(col.key)}
+                          style={{
+                            padding: '10px 12px', textAlign: col.key === 'amount' ? 'right' : 'left',
+                            color: '#F1F5F9', fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
+                            letterSpacing: '0.05em', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
+                          }}>
+                        {col.label}{si(col.key)}
                       </th>
                     ))}
-                    <th className="px-4 py-3 text-left font-semibold" style={{ color: '#94A3B8' }}>Actions</th>
+                    <th style={{ padding: '10px 12px', color: '#F1F5F9', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', textAlign: 'right' }}>
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginated.map((entry, i) => (
-                    <tr key={entry.id}
-                        style={{ borderTop: '1px solid #334155', backgroundColor: i % 2 === 0 ? 'transparent' : '#1a1f36' }}>
-                      <td className="px-4 py-3 font-mono text-xs" style={{ color: '#CBD5E1' }}>
+                    <tr key={entry.id || i}
+                        style={{ backgroundColor: i % 2 === 0 ? '#1E2139' : '#1A2336', borderBottom: '1px solid #1E293B' }}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1F2437'}
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? '#1E2139' : '#1A2336'}>
+                      <td style={{ padding: '12px', color: '#94A3B8', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                         {formatDate(entry.date, dateFormat)}
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium"
-                              style={{ backgroundColor: '#06B6D420', color: '#06B6D4' }}>
+                      <td style={{ padding: '12px' }}>
+                        <span style={{ backgroundColor: '#10B98120', color: '#10B981', padding: '3px 8px', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>
                           {entry.source}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-mono font-semibold" style={{ color: '#10B981' }}>
-                        {formatCurrency(entry.amount, currency)}
+                      <td style={{ padding: '12px', color: '#94A3B8', fontSize: 13 }}>{entry.incomeFrom || '—'}</td>
+                      <td style={{ padding: '12px', color: '#94A3B8', fontSize: 13 }}>{entry.recipient || '—'}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#10B981', fontFamily: 'monospace', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' }}>
+                        +{formatCurrency(entry.amount, currency)}
                       </td>
-                      <td className="px-4 py-3 max-w-xs" style={{ color: '#94A3B8' }}>
-                        <span title={entry.notes}>
-                          {entry.notes ? (entry.notes.length > 40 ? entry.notes.slice(0, 40) + '…' : entry.notes) : '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => handleEdit(entry)}
-                                  className="p-1.5 rounded-lg transition-colors hover:bg-cyan-500/20"
-                                  title="Edit">
-                            <Pencil size={14} color="#06B6D4" />
-                          </button>
-                          <button onClick={() => setDeleteId(entry.id)}
-                                  className="p-1.5 rounded-lg transition-colors hover:bg-red-500/20"
-                                  title="Delete">
-                            <Trash2 size={14} color="#EF4444" />
-                          </button>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+                          <IconBtn onClick={() => handleEdit(entry)} title="Edit" icon={Edit2} />
+                          <IconBtn onClick={() => setDeleteId(entry.id)} title="Delete" icon={Trash2} colour="#EF4444" hoverBg="#EF444420" />
                         </div>
                       </td>
                     </tr>
@@ -574,37 +459,28 @@ export default function Income({ data, setIncome }) {
               </table>
             </div>
 
-            {/* Mobile cards */}
-            <div className="md:hidden divide-y" style={{ borderColor: '#334155' }}>
-              {paginated.map(entry => (
-                <div key={entry.id} className="p-4 space-y-2">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="px-2 py-0.5 rounded text-xs font-medium"
-                            style={{ backgroundColor: '#06B6D420', color: '#06B6D4' }}>
-                        {entry.source}
-                      </span>
-                      <p className="text-xs mt-1" style={{ color: '#64748B' }}>
-                        {formatDate(entry.date, dateFormat)}
-                      </p>
-                    </div>
-                    <span className="font-mono font-bold text-sm" style={{ color: '#10B981' }}>
-                      {formatCurrency(entry.amount, currency)}
+            {/* Mobile */}
+            <div className="md:hidden" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {paginated.map((entry, i) => (
+                <div key={entry.id || i} style={{ backgroundColor: '#0F172A', borderRadius: 8, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ backgroundColor: '#10B98120', color: '#10B981', padding: '3px 8px', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>
+                      {entry.source}
+                    </span>
+                    <span style={{ color: '#10B981', fontFamily: 'monospace', fontWeight: 700 }}>
+                      +{formatCurrency(entry.amount, currency)}
                     </span>
                   </div>
-                  {entry.notes && (
-                    <p className="text-xs" style={{ color: '#94A3B8' }}>{entry.notes}</p>
-                  )}
-                  <div className="flex gap-3">
+                  <p style={{ color: '#64748B', fontSize: 12, margin: '4px 0' }}>{formatDate(entry.date, dateFormat)}</p>
+                  {entry.incomeFrom && <p style={{ color: '#94A3B8', fontSize: 12 }}>{entry.incomeFrom} → {entry.recipient || '—'}</p>}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <button onClick={() => handleEdit(entry)}
-                            className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg"
-                            style={{ backgroundColor: '#06B6D420', color: '#06B6D4' }}>
-                      <Pencil size={12} /> Edit
+                            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, border: 'none', backgroundColor: '#334155', color: '#94A3B8', cursor: 'pointer' }}>
+                      Edit
                     </button>
                     <button onClick={() => setDeleteId(entry.id)}
-                            className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg"
-                            style={{ backgroundColor: '#EF444420', color: '#EF4444' }}>
-                      <Trash2 size={12} /> Delete
+                            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, border: 'none', backgroundColor: '#EF444420', color: '#EF4444', cursor: 'pointer' }}>
+                      Delete
                     </button>
                   </div>
                 </div>
@@ -613,52 +489,49 @@ export default function Income({ data, setIncome }) {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between px-5 py-3"
-                   style={{ borderTop: '1px solid #334155' }}>
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm disabled:opacity-40"
-                        style={{ border: '1px solid #334155', color: '#94A3B8' }}>
-                  <ChevronLeft size={14} /> Prev
-                </button>
-                <span className="text-sm" style={{ color: '#64748B' }}>
-                  Page {page} of {totalPages}
-                </span>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm disabled:opacity-40"
-                        style={{ border: '1px solid #334155', color: '#94A3B8' }}>
-                  Next <ChevronRight size={14} />
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 16, borderTop: '1px solid #334155' }}>
+                <span style={{ color: '#64748B', fontSize: 12 }}>Page {page} of {totalPages}</span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[{ l: 'Prev', f: () => setPage(p => Math.max(1, p - 1)), d: page === 1 },
+                    { l: 'Next', f: () => setPage(p => Math.min(totalPages, p + 1)), d: page === totalPages }].map(b => (
+                    <button key={b.l} onClick={b.f} disabled={b.d}
+                            style={{ height: 32, padding: '0 14px', borderRadius: 6, border: '1px solid #334155', backgroundColor: 'transparent', color: b.d ? '#334155' : '#94A3B8', fontSize: 12, fontWeight: 600, cursor: b.d ? 'not-allowed' : 'pointer', opacity: b.d ? 0.5 : 1 }}>
+                      {b.l}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </>
         )}
       </div>
 
-      {/* ── Delete confirmation modal ─────────────────────── */}
+      {/* ── Delete modal ─────────────────────────────────── */}
       {deleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
-             style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <div className="rounded-xl p-6 w-full max-w-sm shadow-2xl"
-               style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-            <h3 className="font-semibold text-lg mb-2" style={{ color: '#F1F5F9' }}>Delete Entry?</h3>
-            <p className="text-sm mb-5" style={{ color: '#94A3B8' }}>
-              This cannot be undone. Are you sure?
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setDeleteId(null)}
-                      className="px-4 py-2 rounded-lg text-sm"
-                      style={{ border: '1px solid #334155', color: '#94A3B8' }}>
-                Cancel
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ ...CARD, width: 360, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h3 style={{ color: '#F1F5F9', margin: 0, fontSize: 16, fontWeight: 700 }}>Delete Entry?</h3>
+              <button onClick={() => setDeleteId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <X size={18} color="#64748B" />
               </button>
+            </div>
+            <p style={{ color: '#94A3B8', fontSize: 14, marginBottom: 20 }}>This cannot be undone.</p>
+            <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => handleDelete(deleteId)}
-                      className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
-                      style={{ backgroundColor: '#EF4444' }}>
+                      style={{ flex: 1, height: 44, backgroundColor: '#EF4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>
                 Delete
+              </button>
+              <button onClick={() => setDeleteId(null)}
+                      style={{ flex: 1, height: 44, backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
+                Cancel
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <Toast message={toast.message} type={toast.type} />
     </div>
   );
 }

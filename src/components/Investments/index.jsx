@@ -1,586 +1,892 @@
 // ============================================================
-// Investments/index.jsx — Portfolio tracking with P&L
-// Sections: Entry form, Portfolio summary cards,
-//           Asset allocation pie, Holdings heatmap,
-//           Holdings table, Performance bar chart
+// Investments/index.jsx — Portfolio tracking v2
+// Features: Holdings table (grouped by symbol) → Tranches modal
+//           (edit/delete/close units per tranche),
+//           Closed positions toggle, Asset allocation pie,
+//           P&L bar chart, Holdings heatmap, Collapsible form
 // ============================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer,
+  ResponsiveContainer,
 } from 'recharts';
-import {
-  Plus, ChevronUp, ChevronDown, Pencil, Trash2,
-  X, RotateCcw,
-} from 'lucide-react';
+import { Trash2, Edit2, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Plus, TrendingUp, TrendingDown } from 'lucide-react';
 
 import { generateId } from '../../utils/storage';
 import {
-  calculatePortfolioValue, calculateCostBasis,
-  calculateTotalPnL, calculatePnL, calculatePnLPercent,
-  getAssetAllocation,
+  calculatePortfolioValue, calculateCostBasis, calculateTotalPnL,
+  calculateRealizedPnL, getAssetAllocation, activeInvestments,
 } from '../../utils/calculations';
-import {
-  formatCurrency, formatPercent, formatCurrencySigned,
-  formatPercentSigned, getAmountColour, getPnLBgColour,
-} from '../../utils/formatters';
-import { formatDate, todayISO, isFutureDate } from '../../utils/dateHelpers';
+import { formatCurrency, formatCurrencySigned, formatPercent } from '../../utils/formatters';
+import { formatDate, todayISO } from '../../utils/dateHelpers';
 
-// ── Constants ─────────────────────────────────────────────────
-const INV_TYPES   = ['Stock', 'Crypto', 'ETF', 'Bond', 'Mutual Fund', 'Other'];
-const PIE_COLOURS = ['#06B6D4', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#64748B'];
-const EMPTY_FORM  = {
-  date: todayISO(), type: '', symbol: '',
-  quantity: '', purchasePrice: '', currentPrice: '', notes: '',
+// ── Constants ──────────────────────────────────────────────
+const TYPES = ['Stock', 'Crypto', 'ETF', 'Bond', 'Mutual Fund', 'Other'];
+const CHART_COLOURS = ['#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+
+// ── Design tokens ──────────────────────────────────────────
+const CARD  = { backgroundColor: '#1E2139', border: '1px solid #334155', borderRadius: '10px' };
+const HDR   = { backgroundColor: '#1A2332', borderBottom: '1px solid #334155' };
+const INPUT = {
+  width: '100%', backgroundColor: '#0F172A', border: '1px solid #334155',
+  borderRadius: '8px', padding: '10px 12px', color: '#F1F5F9',
+  fontSize: '14px', outline: 'none',
+};
+const LABEL = {
+  fontSize: '11px', fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.08em',
+  display: 'block', marginBottom: '6px', textTransform: 'uppercase',
 };
 
-// ── Reusable components (same pattern as Income) ──────────────
-function Toast({ message, type = 'success', onClose }) {
-  const bg = type === 'success' ? '#10B981' : '#EF4444';
+// ── Reusable field ─────────────────────────────────────────
+function Field({ label, required, error, children }) {
   return (
-    <div className="fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg shadow-xl text-white text-sm font-medium"
-         style={{ backgroundColor: bg, minWidth: 260 }}>
-      {message}
-      <button onClick={onClose} className="ml-auto opacity-70 hover:opacity-100"><X size={14} /></button>
+    <div>
+      <label style={LABEL}>{label}{required && <span style={{ color: '#EF4444', marginLeft: 2 }}>*</span>}</label>
+      {children}
+      {error && <p style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{error}</p>}
     </div>
   );
 }
 
-function StatCard({ label, value, sub, subColour }) {
+// ── Toast ──────────────────────────────────────────────────
+function Toast({ message, type }) {
+  if (!message) return null;
+  const colour = type === 'success' ? '#10B981' : '#EF4444';
+  const Icon   = type === 'success' ? CheckCircle : AlertCircle;
   return (
-    <div className="rounded-xl p-4" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-      <p className="text-xs mb-1" style={{ color: '#64748B' }}>{label}</p>
-      <p className="text-xl font-bold font-mono" style={{ color: '#F1F5F9' }}>{value}</p>
-      {sub && <p className="text-xs mt-1 font-medium" style={{ color: subColour || '#94A3B8' }}>{sub}</p>}
+    <div style={{
+      position: 'fixed', bottom: 24, right: 24, zIndex: 60,
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '12px 18px', borderRadius: 12,
+      backgroundColor: '#1A2332', border: `1px solid ${colour}`,
+      boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    }}>
+      <Icon size={16} color={colour} />
+      <span style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 600 }}>{message}</span>
     </div>
   );
 }
 
-function ChartTooltip({ active, payload, label, currency }) {
+// ── Recharts tooltip ───────────────────────────────────────
+function ChartTip({ active, payload, label, currency = 'AUD', isPct = false }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg p-3 text-sm shadow-xl"
-         style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-      <p className="font-semibold mb-1" style={{ color: '#F1F5F9' }}>{label}</p>
+    <div style={{ backgroundColor: '#1A2332', border: '1px solid #334155', borderRadius: 8, padding: '10px 14px' }}>
+      <p style={{ color: '#CBD5E1', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{label}</p>
       {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color || '#06B6D4' }}>
-          {p.name}: {typeof p.value === 'number' && Math.abs(p.value) > 1
-            ? formatCurrency(p.value, currency)
-            : `${p.value?.toFixed?.(2)}%`}
+        <p key={i} style={{ color: p.color || '#06B6D4', fontSize: 12 }}>
+          {p.name}: {isPct ? `${p.value.toFixed(2)}%` : formatCurrency(p.value, currency)}
         </p>
       ))}
     </div>
   );
 }
 
-// ── Holdings heatmap — each holding as coloured box ───────────
-function HoldingsHeatmap({ investments, currency }) {
-  const total = calculatePortfolioValue(investments);
-  if (!total || investments.length === 0) return null;
-
+// ── Stat card ──────────────────────────────────────────────
+function StatCard({ label, value, sub, subColour }) {
   return (
-    <div className="rounded-xl p-5" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-      <h3 className="font-semibold mb-4" style={{ color: '#F1F5F9' }}>Holdings Heatmap</h3>
-      <div className="flex flex-wrap gap-2">
-        {investments
-          .map(inv => ({
-            ...inv,
-            currentValue: Number(inv.quantity) * Number(inv.currentPrice),
-            pnlPct: calculatePnLPercent(inv),
-          }))
-          .sort((a, b) => b.currentValue - a.currentValue)
-          .map(inv => {
-            const pct      = (inv.currentValue / total) * 100;
-            const pnl      = inv.pnlPct;
-            const bgColour = pnl > 5  ? '#10B981' :
-                             pnl > 0  ? '#059669' :
-                             pnl < -5 ? '#DC2626' :
-                             pnl < 0  ? '#EF4444' : '#475569';
-            // Size proportional to portfolio weight, min 60px
-            const size = Math.max(60, Math.round(pct * 8));
-            return (
-              <div
-                key={inv.id}
-                title={`${inv.symbol}: ${formatCurrency(inv.currentValue, currency)} | P&L: ${formatPercentSigned(pnl)}`}
-                className="rounded-lg flex flex-col items-center justify-center text-white cursor-default transition-transform hover:scale-105"
-                style={{
-                  backgroundColor: bgColour,
-                  width: size, height: size,
-                  opacity: 0.85 + (pct / 100) * 0.15,
-                }}
-              >
-                <span className="font-bold text-xs">{inv.symbol}</span>
-                <span className="text-xs opacity-90">{formatPercentSigned(pnl)}</span>
-              </div>
-            );
-          })}
+    <div style={{ ...CARD, padding: '20px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CBD5E1', textTransform: 'uppercase', marginBottom: 8 }}>
+        {label}
       </div>
-      <p className="text-xs mt-3" style={{ color: '#475569' }}>
-        Box size = portfolio weight · Colour = P&L (green = gain, red = loss)
-      </p>
+      <div style={{ fontSize: 26, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9' }}>
+        {value}
+      </div>
+      {sub !== undefined && (
+        <div style={{ fontSize: 12, color: subColour || '#64748B', marginTop: 4, fontWeight: 600 }}>{sub}</div>
+      )}
     </div>
   );
 }
 
-// ── Main Investments component ────────────────────────────────
+// ── Tranches modal ─────────────────────────────────────────
+// Shows all tranches for a single symbol.
+// Each tranche: View → Edit → Delete → Close Units (opens mini-form)
+function TranchesModal({ symbol, tranches, currency, dateFormat, onClose, onEdit, onDelete, onPartialClose }) {
+  const [closeForm, setCloseForm] = useState(null); // { trancheId, maxQty }
+  const [closeData, setCloseData] = useState({ qty: '', soldPrice: '', soldDate: todayISO() });
+  const [closeErr,  setCloseErr]  = useState({});
+
+  function openCloseForm(tranche) {
+    setCloseForm({ trancheId: tranche.id, maxQty: Number(tranche.quantity) });
+    setCloseData({ qty: '', soldPrice: '', soldDate: todayISO() });
+    setCloseErr({});
+  }
+
+  function submitClose() {
+    const errs = {};
+    const qty = Number(closeData.qty);
+    const sp  = Number(closeData.soldPrice);
+    if (!qty || qty <= 0)                      errs.qty = 'Enter units > 0';
+    if (qty > closeForm.maxQty)                errs.qty = `Max ${closeForm.maxQty} units`;
+    if (!sp || sp <= 0)                        errs.soldPrice = 'Enter sold price > 0';
+    if (!closeData.soldDate)                   errs.soldDate = 'Required';
+    if (Object.keys(errs).length) { setCloseErr(errs); return; }
+    onPartialClose(closeForm.trancheId, qty, sp, closeData.soldDate);
+    setCloseForm(null);
+  }
+
+  const totalValue = tranches.reduce((s, t) => s + Number(t.quantity) * Number(t.currentPrice), 0);
+  const totalCost  = tranches.reduce((s, t) => s + Number(t.quantity) * Number(t.purchasePrice), 0);
+  const totalPnL   = totalValue - totalCost;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+      <div style={{ ...CARD, width: '100%', maxWidth: 760, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {/* Modal header */}
+        <div style={{ ...HDR, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div>
+            <h2 style={{ color: '#F1F5F9', margin: 0, fontSize: 17, fontWeight: 800 }}>
+              📈 {symbol} — Tranches
+            </h2>
+            <p style={{ color: '#475569', fontSize: 12, margin: '2px 0 0' }}>
+              {tranches.length} open lot{tranches.length !== 1 ? 's' : ''} &bull;
+              Value {formatCurrency(totalValue, currency)} &bull;
+              <span style={{ color: totalPnL >= 0 ? '#10B981' : '#EF4444' }}>
+                {' '}{formatCurrencySigned(totalPnL, currency)} unrealised
+              </span>
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+            <X size={20} color="#64748B" />
+          </button>
+        </div>
+
+        {/* Tranches list */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead style={{ position: 'sticky', top: 0 }}>
+              <tr style={{ backgroundColor: '#334155' }}>
+                {['Date', 'Qty', 'Buy Price', 'Current Price', 'Cost Basis', 'Current Value', 'P&L', 'Actions'].map(h => (
+                  <th key={h} style={{ padding: '10px 12px', color: '#F1F5F9', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: h === 'P&L' || h === 'Current Value' || h === 'Cost Basis' ? 'right' : 'left', whiteSpace: 'nowrap' }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tranches.map((t, i) => {
+                const pnl    = (Number(t.currentPrice) - Number(t.purchasePrice)) * Number(t.quantity);
+                const pnlPct = Number(t.purchasePrice) > 0
+                  ? ((Number(t.currentPrice) - Number(t.purchasePrice)) / Number(t.purchasePrice)) * 100
+                  : 0;
+                const pnlCol = pnl >= 0 ? '#10B981' : '#EF4444';
+                return (
+                  <tr key={t.id || i}
+                      style={{ backgroundColor: i % 2 === 0 ? '#1E2139' : '#1A2336', borderBottom: '1px solid #1E293B' }}>
+                    <td style={{ padding: '10px 12px', color: '#94A3B8', fontSize: 12, fontFamily: 'monospace' }}>
+                      {formatDate(t.date, dateFormat)}
+                    </td>
+                    <td style={{ padding: '10px 12px', color: '#F1F5F9', fontSize: 13, fontWeight: 600 }}>
+                      {Number(t.quantity).toLocaleString()}
+                    </td>
+                    <td style={{ padding: '10px 12px', color: '#CBD5E1', fontSize: 13, fontFamily: 'monospace' }}>
+                      {formatCurrency(t.purchasePrice, currency)}
+                    </td>
+                    <td style={{ padding: '10px 12px', color: '#CBD5E1', fontSize: 13, fontFamily: 'monospace' }}>
+                      {formatCurrency(t.currentPrice, currency)}
+                    </td>
+                    <td style={{ padding: '10px 12px', color: '#94A3B8', fontSize: 12, fontFamily: 'monospace', textAlign: 'right' }}>
+                      {formatCurrency(Number(t.quantity) * Number(t.purchasePrice), currency)}
+                    </td>
+                    <td style={{ padding: '10px 12px', color: '#F1F5F9', fontSize: 13, fontFamily: 'monospace', fontWeight: 700, textAlign: 'right' }}>
+                      {formatCurrency(Number(t.quantity) * Number(t.currentPrice), currency)}
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <span style={{ color: pnlCol, fontSize: 12, fontFamily: 'monospace', fontWeight: 700 }}>
+                        {formatCurrencySigned(pnl, currency)}
+                      </span>
+                      <br />
+                      <span style={{ color: pnlCol, fontSize: 11 }}>
+                        {pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <button onClick={() => { onEdit(t); onClose(); }} title="Edit"
+                                style={{ padding: '4px 8px', borderRadius: 5, border: 'none', backgroundColor: '#334155', color: '#94A3B8', fontSize: 11, cursor: 'pointer' }}>
+                          Edit
+                        </button>
+                        <button onClick={() => onDelete(t.id)} title="Delete"
+                                style={{ padding: '4px 8px', borderRadius: 5, border: 'none', backgroundColor: '#EF444420', color: '#EF4444', fontSize: 11, cursor: 'pointer' }}>
+                          Del
+                        </button>
+                        <button onClick={() => openCloseForm(t)} title="Close some or all units"
+                                style={{ padding: '4px 8px', borderRadius: 5, border: 'none', backgroundColor: '#F59E0B20', color: '#F59E0B', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          Close Units
+                        </button>
+                      </div>
+
+                      {/* Inline Close Units mini-form */}
+                      {closeForm?.trancheId === t.id && (
+                        <div style={{ marginTop: 8, padding: '10px', backgroundColor: '#0F172A', borderRadius: 8, border: '1px solid #F59E0B40', minWidth: 220 }}>
+                          <p style={{ color: '#F59E0B', fontSize: 11, fontWeight: 700, marginBottom: 8 }}>
+                            Close up to {closeForm.maxQty} units
+                          </p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div>
+                              <label style={{ ...LABEL, fontSize: 10 }}>Units to sell *</label>
+                              <input type="number" min="0.0001" max={closeForm.maxQty} step="0.0001"
+                                     placeholder={`Max ${closeForm.maxQty}`}
+                                     value={closeData.qty}
+                                     style={{ ...INPUT, padding: '6px 8px', fontSize: 12 }}
+                                     onChange={e => setCloseData(d => ({ ...d, qty: e.target.value }))} />
+                              {closeErr.qty && <p style={{ color: '#EF4444', fontSize: 10, marginTop: 2 }}>{closeErr.qty}</p>}
+                            </div>
+                            <div>
+                              <label style={{ ...LABEL, fontSize: 10 }}>Sold price/unit *</label>
+                              <input type="number" min="0" step="0.0001" placeholder="0.00"
+                                     value={closeData.soldPrice}
+                                     style={{ ...INPUT, padding: '6px 8px', fontSize: 12 }}
+                                     onChange={e => setCloseData(d => ({ ...d, soldPrice: e.target.value }))} />
+                              {closeErr.soldPrice && <p style={{ color: '#EF4444', fontSize: 10, marginTop: 2 }}>{closeErr.soldPrice}</p>}
+                            </div>
+                            <div>
+                              <label style={{ ...LABEL, fontSize: 10 }}>Sold date *</label>
+                              <input type="date" value={closeData.soldDate}
+                                     style={{ ...INPUT, padding: '6px 8px', fontSize: 12 }}
+                                     onChange={e => setCloseData(d => ({ ...d, soldDate: e.target.value }))} />
+                              {closeErr.soldDate && <p style={{ color: '#EF4444', fontSize: 10, marginTop: 2 }}>{closeErr.soldDate}</p>}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button onClick={submitClose}
+                                      style={{ flex: 1, height: 32, backgroundColor: '#F59E0B', color: '#000', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                                Confirm Close
+                              </button>
+                              <button onClick={() => setCloseForm(null)}
+                                      style={{ height: 32, padding: '0 10px', backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {/* Totals footer */}
+            <tfoot>
+              <tr style={{ backgroundColor: '#0F172A', borderTop: '2px solid #334155' }}>
+                <td colSpan={4} style={{ padding: '10px 12px', color: '#CBD5E1', fontSize: 12, fontWeight: 700 }}>TOTAL</td>
+                <td style={{ padding: '10px 12px', color: '#CBD5E1', fontSize: 12, fontFamily: 'monospace', textAlign: 'right', fontWeight: 700 }}>
+                  {formatCurrency(totalCost, currency)}
+                </td>
+                <td style={{ padding: '10px 12px', color: '#F1F5F9', fontSize: 13, fontFamily: 'monospace', textAlign: 'right', fontWeight: 800 }}>
+                  {formatCurrency(totalValue, currency)}
+                </td>
+                <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                  <span style={{ color: totalPnL >= 0 ? '#10B981' : '#EF4444', fontFamily: 'monospace', fontWeight: 800, fontSize: 13 }}>
+                    {formatCurrencySigned(totalPnL, currency)}
+                  </span>
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {/* Modal footer */}
+        <div style={{ padding: '14px 20px', borderTop: '1px solid #334155', flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={onClose}
+                  style={{ height: 40, padding: '0 20px', backgroundColor: '#334155', color: '#CBD5E1', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Investments component ─────────────────────────────
 export default function Investments({ data, setInvestments }) {
   const { investments, settings } = data;
   const currency   = settings?.currency   || 'AUD';
   const dateFormat = settings?.dateFormat || 'DD/MM/YYYY';
 
-  // Form state
-  const [form,     setForm]     = useState(EMPTY_FORM);
-  const [editId,   setEditId]   = useState(null);
-  const [formOpen, setFormOpen] = useState(true);
-  const [errors,   setErrors]   = useState({});
-  const [toast,    setToast]    = useState(null);
-  const [deleteId, setDeleteId] = useState(null);
+  // ── Form state ─────────────────────────────────────────
+  const blank = { date: todayISO(), type: '', symbol: '', quantity: '', purchasePrice: '', currentPrice: '', notes: '' };
+  const [form,      setForm]      = useState(blank);
+  const [errors,    setErrors]    = useState({});
+  const [editId,    setEditId]    = useState(null);
+  const [formOpen,  setFormOpen]  = useState(false);
+  const [toast,     setToast]     = useState({ message: '', type: 'success' });
+  const [deleteId,  setDeleteId]  = useState(null);
 
-  // Filter/sort state
-  const [filterType,  setFilterType]  = useState('All');
-  const [filterSymbol, setFilterSymbol] = useState('');
-  const [sortCol,     setSortCol]     = useState('currentValue');
-  const [sortDir,     setSortDir]     = useState('desc');
+  // Tranches modal
+  const [trancheSymbol, setTrancheSymbol] = useState(null);
 
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
+  // Closed positions toggle
+  const [showClosed, setShowClosed] = useState(false);
 
-  // ── Validation ──────────────────────────────────────────────
-  const validate = (f = form) => {
+  const showToast = useCallback((msg, type = 'success') => {
+    setToast({ message: msg, type });
+    setTimeout(() => setToast({ message: '', type: 'success' }), 3000);
+  }, []);
+
+  // ── Validation ─────────────────────────────────────────
+  function validate() {
     const e = {};
-    if (!f.date)                                    e.date          = 'Date is required';
-    if (isFutureDate(f.date))                       e.date          = 'Date cannot be in the future';
-    if (!f.type)                                    e.type          = 'Type is required';
-    if (!f.symbol || f.symbol.trim().length === 0)  e.symbol        = 'Symbol is required';
-    if (f.symbol && /\s/.test(f.symbol))            e.symbol        = 'No spaces allowed';
-    if (!f.quantity || Number(f.quantity) <= 0)     e.quantity      = 'Quantity must be > 0';
-    if (!f.purchasePrice || Number(f.purchasePrice) <= 0) e.purchasePrice = 'Purchase price must be > 0';
-    if (!f.currentPrice  || Number(f.currentPrice)  <= 0) e.currentPrice  = 'Current price must be > 0';
+    if (!form.date)                                  e.date          = 'Required';
+    if (!form.type)                                  e.type          = 'Required';
+    if (!form.symbol?.trim())                        e.symbol        = 'Required';
+    if (/\s/.test(form.symbol))                      e.symbol        = 'No spaces';
+    if (!form.quantity || Number(form.quantity) <= 0) e.quantity     = 'Enter qty > 0';
+    if (!form.purchasePrice || Number(form.purchasePrice) <= 0) e.purchasePrice = 'Enter price > 0';
+    if (!form.currentPrice || Number(form.currentPrice) <= 0)   e.currentPrice  = 'Enter price > 0';
     return e;
-  };
+  }
 
-  const isValid = Object.keys(validate()).length === 0;
-
-  const handleChange = (field, value) => {
-    const updated = { ...form, [field]: field === 'symbol' ? value.toUpperCase() : value };
-    setForm(updated);
-    const e = validate(updated);
-    setErrors(prev => ({ ...prev, [field]: e[field] }));
-  };
-
-  // ── Submit ──────────────────────────────────────────────────
-  const handleSubmit = () => {
-    const e = validate();
-    if (Object.keys(e).length) { setErrors(e); return; }
-    const now = new Date().toISOString();
+  // ── Add / update investment ────────────────────────────
+  function handleSubmit(ev) {
+    ev.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    const entry = {
+      ...form,
+      symbol:        form.symbol.toUpperCase().trim(),
+      quantity:      Number(form.quantity),
+      purchasePrice: Number(form.purchasePrice),
+      currentPrice:  Number(form.currentPrice),
+    };
     if (editId) {
-      setInvestments(investments.map(i =>
-        i.id === editId
-          ? { ...i, ...form, quantity: Number(form.quantity), purchasePrice: Number(form.purchasePrice), currentPrice: Number(form.currentPrice), updatedAt: now }
-          : i
-      ));
-      showToast('✓ Investment updated successfully');
-      setEditId(null);
+      setInvestments(investments.map(inv => inv.id === editId ? { ...inv, ...entry } : inv));
+      showToast('Investment updated ✓');
     } else {
-      setInvestments([...investments, {
-        id: generateId('inv'), ...form,
-        quantity: Number(form.quantity),
-        purchasePrice: Number(form.purchasePrice),
-        currentPrice:  Number(form.currentPrice),
-        createdAt: now, updatedAt: now,
-      }]);
-      showToast('✓ Investment added successfully');
+      setInvestments([...investments, { ...entry, id: generateId('inv'), isClosed: false }]);
+      showToast('Investment added ✓');
     }
-    setForm(EMPTY_FORM);
-    setErrors({});
-  };
+    setForm(blank); setErrors({}); setEditId(null); setFormOpen(false);
+  }
 
-  const handleEdit = (inv) => {
+  function handleEdit(inv) {
     setForm({
       date: inv.date, type: inv.type, symbol: inv.symbol,
       quantity: String(inv.quantity), purchasePrice: String(inv.purchasePrice),
       currentPrice: String(inv.currentPrice), notes: inv.notes || '',
     });
-    setEditId(inv.id);
-    setFormOpen(true);
+    setEditId(inv.id); setErrors({}); setFormOpen(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }
 
-  const handleDelete = (id) => {
-    setInvestments(investments.filter(i => i.id !== id));
+  function handleDelete(id) {
+    setInvestments(investments.filter(inv => inv.id !== id));
     setDeleteId(null);
-    showToast('Investment removed', 'error');
-  };
+    if (trancheSymbol) {
+      // If we just deleted the last tranche of a symbol, close the modal
+      const remaining = investments.filter(inv => inv.id !== id && inv.symbol === trancheSymbol && !inv.isClosed);
+      if (remaining.length === 0) setTrancheSymbol(null);
+    }
+    showToast('Investment deleted', 'error');
+  }
 
-  const handleSort = (col) => {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortCol(col); setSortDir('desc'); }
-  };
+  // ── Partial close handler ──────────────────────────────
+  function handlePartialClose(trancheId, qty, soldPrice, soldDate) {
+    const tranche = investments.find(i => i.id === trancheId);
+    if (!tranche) return;
 
-  // ── Computed values ─────────────────────────────────────────
-  const portfolioValue = calculatePortfolioValue(investments);
-  const costBasis      = calculateCostBasis(investments);
-  const totalPnL       = calculateTotalPnL(investments);
-  const totalPnLPct    = costBasis > 0 ? (totalPnL / costBasis) * 100 : 0;
+    const totalQty = Number(tranche.quantity);
 
-  const allocation = useMemo(() => getAssetAllocation(investments), [investments]);
+    if (qty >= totalQty) {
+      // Close ALL units: mark the tranche as closed
+      setInvestments(investments.map(inv =>
+        inv.id === trancheId
+          ? { ...inv, isClosed: true, soldDate, soldPrice: Number(soldPrice), quantity: totalQty }
+          : inv
+      ));
+      showToast(`Closed ${totalQty} units of ${tranche.symbol} ✓`);
+    } else {
+      // Partial close: create a new closed record + reduce original qty
+      const closedEntry = {
+        ...tranche,
+        id: generateId('inv'),
+        quantity: qty,
+        isClosed: true,
+        soldDate,
+        soldPrice: Number(soldPrice),
+      };
+      const updatedOriginal = { ...tranche, quantity: totalQty - qty };
+      setInvestments(
+        investments.map(inv => inv.id === trancheId ? updatedOriginal : inv)
+          .concat(closedEntry)
+      );
+      showToast(`Closed ${qty} of ${totalQty} units of ${tranche.symbol} ✓`);
+    }
+    setTrancheSymbol(null);
+  }
 
-  const filteredAndSorted = useMemo(() => {
-    return investments
-      .filter(inv => {
-        if (filterType !== 'All' && inv.type !== filterType) return false;
-        if (filterSymbol && !inv.symbol.toLowerCase().includes(filterSymbol.toLowerCase())) return false;
-        return true;
-      })
-      .map(inv => ({
-        ...inv,
-        currentValue: Number(inv.quantity) * Number(inv.currentPrice),
-        pnlDollar:    calculatePnL(inv),
-        pnlPercent:   calculatePnLPercent(inv),
-      }))
-      .sort((a, b) => {
-        const va = a[sortCol] ?? 0, vb = b[sortCol] ?? 0;
-        if (va < vb) return sortDir === 'asc' ? -1 :  1;
-        if (va > vb) return sortDir === 'asc' ?  1 : -1;
-        return 0;
-      });
-  }, [investments, filterType, filterSymbol, sortCol, sortDir]);
+  // Reopen a closed position
+  function handleReopen(id) {
+    setInvestments(investments.map(inv =>
+      inv.id === id ? { ...inv, isClosed: false, soldDate: undefined, soldPrice: undefined } : inv
+    ));
+    showToast('Position reopened');
+  }
 
-  const perfData = useMemo(() =>
-    [...filteredAndSorted]
-      .sort((a, b) => b.pnlPercent - a.pnlPercent)
-      .map(inv => ({ symbol: inv.symbol, pnl: Math.round(inv.pnlPercent * 10) / 10 })),
-  [filteredAndSorted]);
+  function cancelForm() {
+    setForm(blank); setEditId(null); setErrors({}); setFormOpen(false);
+  }
 
-  const SortIcon = ({ col }) => {
-    if (sortCol !== col) return <ChevronUp size={12} className="opacity-30" />;
-    return sortDir === 'asc' ? <ChevronUp size={12} color="#06B6D4" /> : <ChevronDown size={12} color="#06B6D4" />;
-  };
+  // ── Active / closed split ──────────────────────────────
+  const active = useMemo(() => activeInvestments(investments), [investments]);
+  const closed = useMemo(() => investments.filter(inv => inv.isClosed), [investments]);
+
+  // ── Portfolio metrics ──────────────────────────────────
+  const portfolioValue  = calculatePortfolioValue(investments);
+  const costBasis       = calculateCostBasis(investments);
+  const totalPnL        = calculateTotalPnL(investments);
+  const totalPnLPct     = costBasis > 0 ? (totalPnL / costBasis) * 100 : 0;
+  const realizedPnL     = calculateRealizedPnL(investments);
+
+  // ── Holdings: group active by symbol ──────────────────
+  const holdings = useMemo(() => {
+    const map = {};
+    active.forEach(inv => {
+      const sym = inv.symbol;
+      if (!map[sym]) map[sym] = { symbol: sym, type: inv.type, tranches: [] };
+      map[sym].tranches.push(inv);
+    });
+    return Object.values(map).map(h => {
+      const qty     = h.tranches.reduce((s, t) => s + Number(t.quantity), 0);
+      const cost    = h.tranches.reduce((s, t) => s + Number(t.quantity) * Number(t.purchasePrice), 0);
+      const value   = h.tranches.reduce((s, t) => s + Number(t.quantity) * Number(t.currentPrice), 0);
+      const pnl     = value - cost;
+      const pnlPct  = cost > 0 ? (pnl / cost) * 100 : 0;
+      const avgBuy  = qty > 0 ? cost / qty : 0;
+      const curPri  = qty > 0 ? value / qty : 0;
+      return { ...h, qty, cost, value, pnl, pnlPct, avgBuy, curPri };
+    });
+  }, [active]);
+
+  // ── Chart data ─────────────────────────────────────────
+  const allocationData = useMemo(() => {
+    const alloc = getAssetAllocation(investments);
+    return alloc.map(a => ({ name: a.type, value: a.amount }));
+  }, [investments]);
+
+  const performanceData = useMemo(() =>
+    holdings.map(h => ({ symbol: h.symbol, pnlPct: Math.round(h.pnlPct * 100) / 100 }))
+  , [holdings]);
+
+  // ── Heatmap tiles ──────────────────────────────────────
+  const heatTiles = useMemo(() =>
+    portfolioValue > 0
+      ? holdings.map(h => ({
+          ...h,
+          weight: portfolioValue > 0 ? (h.value / portfolioValue) * 100 : 0,
+        })).sort((a, b) => b.weight - a.weight)
+      : []
+  , [holdings, portfolioValue]);
 
   return (
-    <div className="space-y-6">
-      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
+      {/* ── Page header ──────────────────────────────────── */}
       <div>
-        <h1 className="text-2xl font-bold" style={{ color: '#F1F5F9' }}>Investments</h1>
-        <p className="text-sm mt-1" style={{ color: '#64748B' }}>Track your portfolio P&L and allocation</p>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: '#F1F5F9', margin: 0 }}>INVESTMENTS</h1>
+        <p style={{ color: '#475569', fontSize: 13, marginTop: 2 }}>
+          Track your portfolio P&L and allocation
+        </p>
       </div>
 
-      {/* ── Entry form ───────────────────────────────────── */}
-      <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-        <button onClick={() => setFormOpen(o => !o)}
-                className="w-full flex items-center justify-between px-5 py-4 text-left"
-                style={{ borderBottom: formOpen ? '1px solid #334155' : 'none' }}>
-          <span className="font-semibold" style={{ color: '#F1F5F9' }}>
-            {editId ? '✏️ Edit Investment' : '+ Add Investment'}
-          </span>
-          {formOpen ? <ChevronUp size={18} color="#64748B" /> : <ChevronDown size={18} color="#64748B" />}
-        </button>
-
-        {formOpen && (
-          <div className="p-5">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Date */}
-              <Field label="Date" required error={errors.date}>
-                <input type="date" value={form.date} max={todayISO()}
-                  onChange={e => handleChange('date', e.target.value)}
-                  style={{ ...inputStyle, borderColor: errors.date ? '#EF4444' : '#334155' }} />
-              </Field>
-
-              {/* Type */}
-              <Field label="Type" required error={errors.type}>
-                <select value={form.type} onChange={e => handleChange('type', e.target.value)}
-                        style={{ ...inputStyle, borderColor: errors.type ? '#EF4444' : '#334155', color: form.type ? '#F1F5F9' : '#64748B' }}>
-                  <option value="">Select type…</option>
-                  {INV_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </Field>
-
-              {/* Symbol */}
-              <Field label="Symbol (e.g. AAPL, BTC)" required error={errors.symbol}>
-                <input type="text" placeholder="AAPL" maxLength={10}
-                  value={form.symbol} onChange={e => handleChange('symbol', e.target.value)}
-                  style={{ ...inputStyle, borderColor: errors.symbol ? '#EF4444' : '#334155' }} />
-              </Field>
-
-              {/* Quantity */}
-              <Field label="Quantity" required error={errors.quantity}>
-                <input type="number" min="0.000001" step="any" placeholder="0"
-                  value={form.quantity} onChange={e => handleChange('quantity', e.target.value)}
-                  style={{ ...inputStyle, borderColor: errors.quantity ? '#EF4444' : '#334155' }} />
-              </Field>
-
-              {/* Purchase Price */}
-              <Field label={`Purchase Price (${currency})`} required error={errors.purchasePrice}>
-                <input type="number" min="0.01" step="0.01" placeholder="0.00"
-                  value={form.purchasePrice} onChange={e => handleChange('purchasePrice', e.target.value)}
-                  style={{ ...inputStyle, borderColor: errors.purchasePrice ? '#EF4444' : '#334155' }} />
-              </Field>
-
-              {/* Current Price */}
-              <Field label={`Current Price (${currency})`} required error={errors.currentPrice}>
-                <input type="number" min="0.01" step="0.01" placeholder="0.00"
-                  value={form.currentPrice} onChange={e => handleChange('currentPrice', e.target.value)}
-                  style={{ ...inputStyle, borderColor: errors.currentPrice ? '#EF4444' : '#334155' }} />
-              </Field>
-
-              {/* Notes — full width */}
-              <div className="md:col-span-3">
-                <Field label="Notes (optional)" error={errors.notes}>
-                  <input type="text" placeholder="e.g. Long-term hold, part of dividend portfolio"
-                    maxLength={255} value={form.notes} onChange={e => handleChange('notes', e.target.value)}
-                    style={{ ...inputStyle, borderColor: '#334155' }} />
-                </Field>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3 mt-4">
-              <button onClick={handleSubmit} disabled={!isValid}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold"
-                      style={{ backgroundColor: isValid ? '#06B6D4' : '#334155', color: isValid ? '#fff' : '#64748B', cursor: isValid ? 'pointer' : 'not-allowed' }}>
-                <Plus size={16} />{editId ? 'Update Investment' : 'Add Investment'}
-              </button>
-              {editId && (
-                <button onClick={() => { setForm(EMPTY_FORM); setEditId(null); setErrors({}); }}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm"
-                        style={{ border: '1px solid #334155', color: '#94A3B8' }}>
-                  <X size={16} /> Cancel Edit
-                </button>
-              )}
-              <button onClick={() => { setForm(EMPTY_FORM); setErrors({}); }}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm"
-                      style={{ border: '1px solid #334155', color: '#94A3B8' }}>
-                <RotateCcw size={15} /> Reset
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Portfolio summary cards ───────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Portfolio Value"  value={formatCurrency(portfolioValue, currency)} />
+      {/* ── Portfolio summary (4 cards) ───────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+        <StatCard label="💎 Portfolio Value"  value={formatCurrency(portfolioValue, currency)} />
         <StatCard
-          label="Unrealised P&L"
+          label="📈 Unrealised P&L"
           value={formatCurrencySigned(totalPnL, currency)}
-          sub={formatPercentSigned(totalPnLPct)}
+          sub={`${totalPnLPct >= 0 ? '+' : ''}${totalPnLPct.toFixed(2)}%`}
           subColour={totalPnL >= 0 ? '#10B981' : '#EF4444'}
         />
-        <StatCard label="Cost Basis"       value={formatCurrency(costBasis, currency)} sub="Total invested" />
-        <StatCard label="Holdings"         value={`${investments.length}`} sub="unique positions" />
+        <StatCard label="💰 Cost Basis"  value={formatCurrency(costBasis, currency)} sub="Total invested" />
+        <StatCard label="📦 Holdings"    value={holdings.length}  sub={`${active.length} open lots`} />
       </div>
 
-      {/* ── Charts ───────────────────────────────────────── */}
-      {investments.length > 0 && (
-        <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Asset Allocation Pie */}
-            <div className="rounded-xl p-5" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-              <h3 className="font-semibold mb-4" style={{ color: '#F1F5F9' }}>Asset Allocation</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={allocation} cx="50%" cy="50%" outerRadius={80}
-                       dataKey="amount" nameKey="type"
-                       label={({ type, percentage }) => `${type} ${percentage}%`}
-                       labelLine={false}>
-                    {allocation.map((_, i) => <Cell key={i} fill={PIE_COLOURS[i % PIE_COLOURS.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={v => formatCurrency(v, currency)}
-                           contentStyle={{ backgroundColor: '#1E2139', border: '1px solid #334155', borderRadius: 8 }}
-                           labelStyle={{ color: '#F1F5F9' }} />
-                  <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Performance Bar */}
-            <div className="rounded-xl p-5" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-              <h3 className="font-semibold mb-4" style={{ color: '#F1F5F9' }}>Performance (P&L %)</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={perfData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="symbol" tick={{ fill: '#64748B', fontSize: 11 }} tickLine={false} />
-                  <YAxis tick={{ fill: '#64748B', fontSize: 11 }} tickLine={false} axisLine={false}
-                         tickFormatter={v => `${v}%`} />
-                  <Tooltip formatter={v => `${v}%`}
-                           contentStyle={{ backgroundColor: '#1E2139', border: '1px solid #334155', borderRadius: 8 }} />
-                  <Bar dataKey="pnl" name="P&L %" radius={[4, 4, 0, 0]}
-                       fill="#10B981"
-                       label={false}>
-                    {perfData.map((d, i) => (
-                      <Cell key={i} fill={d.pnl >= 0 ? '#10B981' : '#EF4444'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Holdings Heatmap */}
-          <HoldingsHeatmap investments={investments} currency={currency} />
-        </>
-      )}
-
-      {/* ── Filters ──────────────────────────────────────── */}
-      <div className="rounded-xl p-4" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-        <div className="flex flex-wrap gap-3 items-end">
-          <div className="flex-1 min-w-36">
-            <label className="block text-xs mb-1" style={{ color: '#64748B' }}>Type</label>
-            <select value={filterType} onChange={e => setFilterType(e.target.value)}
-                    style={{ ...inputStyle, borderColor: '#334155' }}>
-              <option value="All">All Types</option>
-              {INV_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div className="flex-1 min-w-36">
-            <label className="block text-xs mb-1" style={{ color: '#64748B' }}>Search Symbol</label>
-            <input type="text" placeholder="AAPL…" value={filterSymbol}
-              onChange={e => setFilterSymbol(e.target.value)}
-              style={{ ...inputStyle, borderColor: '#334155' }} />
-          </div>
-          <button onClick={() => { setFilterType('All'); setFilterSymbol(''); }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-                  style={{ border: '1px solid #334155', color: '#94A3B8' }}>
-            <RotateCcw size={14} /> Reset
-          </button>
-        </div>
-      </div>
-
-      {/* ── Holdings table ───────────────────────────────── */}
-      <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid #334155' }}>
-          <h3 className="font-semibold" style={{ color: '#F1F5F9' }}>Holdings</h3>
-          <span className="text-sm" style={{ color: '#64748B' }}>{filteredAndSorted.length} positions</span>
+      {/* ── Holdings table (grouped by symbol) ───────────── */}
+      <div style={{ ...CARD, padding: '20px' }}>
+        <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
+          <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>HOLDINGS</h3>
+          <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Click a row to view individual tranches</p>
         </div>
 
-        {investments.length === 0 ? (
-          <div className="py-12 text-center" style={{ color: '#64748B' }}>
-            No investments yet. Add your first position above.
+        {holdings.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748B', fontSize: 14 }}>
+            📭 No active holdings. Add your first investment below.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ backgroundColor: '#334155' }}>
-                  {[
-                    { key: 'symbol',        label: 'Symbol'       },
-                    { key: 'type',          label: 'Type'         },
-                    { key: 'quantity',      label: 'Qty'          },
-                    { key: 'purchasePrice', label: 'Buy Price'    },
-                    { key: 'currentPrice',  label: 'Now'          },
-                    { key: 'currentValue',  label: 'Value'        },
-                    { key: 'pnlDollar',     label: 'P&L $'        },
-                    { key: 'pnlPercent',    label: 'P&L %'        },
-                  ].map(col => (
-                    <th key={col.key} onClick={() => handleSort(col.key)}
-                        className="px-4 py-3 text-left font-semibold cursor-pointer select-none"
-                        style={{ color: '#94A3B8' }}>
-                      <div className="flex items-center gap-1">
-                        {col.label}
-                        <SortIcon col={col.key} />
-                      </div>
+                  {['Symbol', 'Type', 'Qty', 'Avg Buy', 'Current Price', 'Cost Basis', 'Value', 'P&L $', 'P&L %'].map(h => (
+                    <th key={h} style={{
+                      padding: '10px 12px', color: '#F1F5F9', fontSize: 11, fontWeight: 700,
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                      textAlign: ['Qty', 'Avg Buy', 'Current Price', 'Cost Basis', 'Value', 'P&L $', 'P&L %'].includes(h) ? 'right' : 'left',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {h}
                     </th>
                   ))}
-                  <th className="px-4 py-3 text-left font-semibold" style={{ color: '#94A3B8' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {/* Totals row */}
-                <tr style={{ backgroundColor: '#0F172A', borderTop: '1px solid #334155' }}>
-                  <td colSpan={5} className="px-4 py-2 text-xs font-semibold" style={{ color: '#64748B' }}>TOTAL</td>
-                  <td className="px-4 py-2 font-mono font-bold text-sm" style={{ color: '#F1F5F9' }}>{formatCurrency(portfolioValue, currency)}</td>
-                  <td className="px-4 py-2 font-mono font-bold text-sm" style={{ color: totalPnL >= 0 ? '#10B981' : '#EF4444' }}>{formatCurrencySigned(totalPnL, currency)}</td>
-                  <td className="px-4 py-2 font-mono font-bold text-sm" style={{ color: totalPnLPct >= 0 ? '#10B981' : '#EF4444' }}>{formatPercentSigned(totalPnLPct)}</td>
-                  <td />
-                </tr>
-                {filteredAndSorted.map((inv, i) => (
-                  <tr key={inv.id}
-                      style={{ borderTop: '1px solid #334155', backgroundColor: i % 2 === 0 ? 'transparent' : '#1a1f36' }}>
-                    <td className="px-4 py-3 font-bold font-mono" style={{ color: '#06B6D4' }}>{inv.symbol}</td>
-                    <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 rounded text-xs font-medium"
-                            style={{ backgroundColor: '#06B6D420', color: '#06B6D4' }}>
-                        {inv.type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs" style={{ color: '#CBD5E1' }}>{Number(inv.quantity).toLocaleString()}</td>
-                    <td className="px-4 py-3 font-mono text-xs" style={{ color: '#CBD5E1' }}>{formatCurrency(inv.purchasePrice, currency)}</td>
-                    <td className="px-4 py-3 font-mono text-xs" style={{ color: '#F1F5F9' }}>{formatCurrency(inv.currentPrice, currency)}</td>
-                    <td className="px-4 py-3 font-mono font-semibold text-sm" style={{ color: '#F1F5F9' }}>{formatCurrency(inv.currentValue, currency)}</td>
-                    <td className="px-4 py-3 font-mono text-sm" style={{ color: inv.pnlDollar >= 0 ? '#10B981' : '#EF4444' }}>
-                      {formatCurrencySigned(inv.pnlDollar, currency)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPnLBgColour(inv.pnlPercent)}`}>
-                        {formatPercentSigned(inv.pnlPercent)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => handleEdit(inv)}
-                                className="p-1.5 rounded-lg hover:bg-cyan-500/20" title="Edit">
-                          <Pencil size={14} color="#06B6D4" />
-                        </button>
-                        <button onClick={() => setDeleteId(inv.id)}
-                                className="p-1.5 rounded-lg hover:bg-red-500/20" title="Delete">
-                          <Trash2 size={14} color="#EF4444" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {holdings.map((h, i) => {
+                  const pnlCol = h.pnl >= 0 ? '#10B981' : '#EF4444';
+                  return (
+                    <tr key={h.symbol}
+                        onClick={() => setTrancheSymbol(h.symbol)}
+                        style={{
+                          backgroundColor: i % 2 === 0 ? '#1E2139' : '#1A2336',
+                          borderBottom: '1px solid #1E293B',
+                          cursor: 'pointer',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1F2437'}
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? '#1E2139' : '#1A2336'}
+                        title="Click to view individual tranches">
+                      <td style={{ padding: '12px', fontWeight: 700, color: '#F1F5F9', fontFamily: 'monospace' }}>
+                        {h.symbol}
+                        <span style={{ marginLeft: 6, fontSize: 10, color: '#475569' }}>({h.tranches.length} lots)</span>
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <span style={{ backgroundColor: '#06B6D420', color: '#06B6D4', padding: '2px 8px', borderRadius: 5, fontSize: 11, fontWeight: 700 }}>
+                          {h.type}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{h.qty.toLocaleString()}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.avgBuy, currency)}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.curPri, currency)}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.cost, currency)}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#F1F5F9', fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrency(h.value, currency)}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrencySigned(h.pnl, currency)}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>
+                        {h.pnl >= 0 ? '+' : ''}{h.pnlPct.toFixed(2)}%
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
+              {/* Totals row */}
+              <tfoot>
+                <tr style={{ backgroundColor: '#0F172A', borderTop: '2px solid #334155' }}>
+                  <td colSpan={5} style={{ padding: '12px', color: '#CBD5E1', fontWeight: 700, fontSize: 13 }}>TOTAL</td>
+                  <td style={{ padding: '12px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrency(costBasis, currency)}</td>
+                  <td style={{ padding: '12px', textAlign: 'right', color: '#F1F5F9', fontFamily: 'monospace', fontWeight: 800, fontSize: 14 }}>{formatCurrency(portfolioValue, currency)}</td>
+                  <td style={{ padding: '12px', textAlign: 'right', color: totalPnL >= 0 ? '#10B981' : '#EF4444', fontFamily: 'monospace', fontWeight: 800 }}>{formatCurrencySigned(totalPnL, currency)}</td>
+                  <td style={{ padding: '12px', textAlign: 'right', color: totalPnL >= 0 ? '#10B981' : '#EF4444', fontFamily: 'monospace', fontWeight: 800 }}>{totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
       </div>
 
-      {/* ── Delete modal ─────────────────────────────────── */}
+      {/* ── Charts (2 column) ─────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 16 }}>
+
+        {/* Asset Allocation Pie */}
+        <div style={{ ...CARD, padding: '20px' }}>
+          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>ASSET ALLOCATION</h3>
+          </div>
+          {allocationData.length === 0 ? (
+            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>📭 No data.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={allocationData} cx="50%" cy="50%" innerRadius={55} outerRadius={90}
+                     dataKey="value" nameKey="name"
+                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                     labelLine={false}>
+                  {allocationData.map((_, i) => <Cell key={i} fill={CHART_COLOURS[i % CHART_COLOURS.length]} />)}
+                </Pie>
+                <Tooltip formatter={v => formatCurrency(v, currency)} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Performance P&L % Bar */}
+        <div style={{ ...CARD, padding: '20px' }}>
+          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>PERFORMANCE P&L %</h3>
+          </div>
+          {performanceData.length === 0 ? (
+            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>📭 No data.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={performanceData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
+                <XAxis dataKey="symbol" tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} />
+                <YAxis tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} axisLine={false}
+                       tickFormatter={v => `${v}%`} />
+                <Tooltip content={<ChartTip isPct />} />
+                <Bar dataKey="pnlPct" name="P&L %" radius={[3,3,0,0]} maxBarSize={40}
+                     fill="#10B981"
+                     label={false}>
+                  {performanceData.map((d, i) => (
+                    <Cell key={i} fill={d.pnlPct >= 0 ? '#10B981' : '#EF4444'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      {/* ── Holdings Heatmap ──────────────────────────────── */}
+      {heatTiles.length > 0 && (
+        <div style={{ ...CARD, padding: '20px' }}>
+          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>PORTFOLIO HEATMAP</h3>
+            <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Size = portfolio weight · Color = P&L</p>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, minHeight: 80 }}>
+            {heatTiles.map(tile => {
+              const isGain  = tile.pnl >= 0;
+              const bgCol   = isGain ? `rgba(16,185,129,${0.15 + Math.min(0.6, Math.abs(tile.pnlPct) / 30)})`
+                                     : `rgba(239,68,68,${0.15 + Math.min(0.6, Math.abs(tile.pnlPct) / 30)})`;
+              const bdrCol  = isGain ? '#10B981' : '#EF4444';
+              const minWidth = Math.max(80, tile.weight * 3);
+              return (
+                <div key={tile.symbol}
+                     onClick={() => setTrancheSymbol(tile.symbol)}
+                     title={`${tile.symbol}: ${formatCurrency(tile.value, currency)} | ${tile.pnlPct >= 0 ? '+' : ''}${tile.pnlPct.toFixed(2)}%`}
+                     style={{
+                       minWidth, flex: `${tile.weight} 0 ${minWidth}px`, height: 72,
+                       borderRadius: 8, border: `1px solid ${bdrCol}40`,
+                       backgroundColor: bgCol, padding: '8px 10px',
+                       display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                       cursor: 'pointer', transition: 'filter 0.15s',
+                     }}
+                     onMouseEnter={e => e.currentTarget.style.filter = 'brightness(1.15)'}
+                     onMouseLeave={e => e.currentTarget.style.filter = 'none'}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#F1F5F9', fontWeight: 800, fontSize: 13 }}>{tile.symbol}</span>
+                    {isGain ? <TrendingUp size={12} color="#10B981" /> : <TrendingDown size={12} color="#EF4444" />}
+                  </div>
+                  <div>
+                    <div style={{ color: isGain ? '#10B981' : '#EF4444', fontSize: 12, fontWeight: 700 }}>
+                      {tile.pnl >= 0 ? '+' : ''}{tile.pnlPct.toFixed(2)}%
+                    </div>
+                    <div style={{ color: '#94A3B8', fontSize: 10 }}>
+                      {formatCurrency(tile.pnl, currency)} · {tile.weight.toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Investment form (collapsible) ─────────────── */}
+      <div style={CARD}>
+        <button
+          onClick={() => { if (editId) cancelForm(); else setFormOpen(o => !o); }}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer' }}
+          aria-expanded={formOpen}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: '#06B6D420', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Plus size={14} color="#06B6D4" />
+            </div>
+            <span style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700 }}>
+              {editId ? '✏️ EDIT INVESTMENT' : '+ ADD INVESTMENT'}
+            </span>
+          </div>
+          {formOpen ? <ChevronUp size={18} color="#64748B" /> : <ChevronDown size={18} color="#64748B" />}
+        </button>
+
+        <div style={{ maxHeight: formOpen ? '800px' : '0', overflow: 'hidden', opacity: formOpen ? 1 : 0, transition: 'max-height 0.3s ease, opacity 0.25s ease' }}>
+          <div style={{ borderTop: '1px solid #334155', padding: '20px' }}>
+            <form onSubmit={handleSubmit}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" style={{ gap: 16 }}>
+                <Field label="Date" required error={errors.date}>
+                  <input type="date" value={form.date} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                </Field>
+                <Field label="Type" required error={errors.type}>
+                  <select value={form.type} style={INPUT}
+                          onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                    <option value="">Select type…</option>
+                    {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </Field>
+                <Field label="Symbol / Name" required error={errors.symbol}>
+                  <input type="text" placeholder="e.g. AAPL, BTC"
+                         value={form.symbol} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))} />
+                </Field>
+                <Field label="Quantity" required error={errors.quantity}>
+                  <input type="number" min="0" step="0.0001" placeholder="0"
+                         value={form.quantity} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
+                </Field>
+                <Field label="Purchase Price (AUD)" required error={errors.purchasePrice}>
+                  <input type="number" min="0" step="0.0001" placeholder="0.00"
+                         value={form.purchasePrice} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, purchasePrice: e.target.value }))} />
+                </Field>
+                <Field label="Current Price (AUD)" required error={errors.currentPrice}>
+                  <input type="number" min="0" step="0.0001" placeholder="0.00"
+                         value={form.currentPrice} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, currentPrice: e.target.value }))} />
+                </Field>
+                <Field label="Notes (optional)">
+                  <input type="text" placeholder="Optional notes…" value={form.notes} style={INPUT}
+                         onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                </Field>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                <button type="submit"
+                        style={{ height: 44, padding: '0 24px', backgroundColor: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                  {editId ? 'Update Investment' : '+ Add Investment'}
+                </button>
+                <button type="button" onClick={cancelForm}
+                        style={{ height: 44, padding: '0 20px', backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  {editId ? 'Cancel' : 'Reset'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Closed Positions toggle ───────────────────────── */}
+      <div style={CARD}>
+        <button
+          onClick={() => setShowClosed(o => !o)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', background: 'none', border: 'none', cursor: 'pointer' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: '#F59E0B20', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontSize: 14 }}>⊘</span>
+            </div>
+            <span style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700 }}>
+              CLOSED POSITIONS ({closed.length})
+            </span>
+            {realizedPnL !== 0 && (
+              <span style={{ color: realizedPnL >= 0 ? '#10B981' : '#EF4444', fontSize: 13, fontWeight: 700 }}>
+                — Realised P&L: {formatCurrencySigned(realizedPnL, currency)}
+              </span>
+            )}
+          </div>
+          {showClosed ? <ChevronUp size={18} color="#64748B" /> : <ChevronDown size={18} color="#64748B" />}
+        </button>
+
+        <div style={{ maxHeight: showClosed ? '2000px' : '0', overflow: 'hidden', opacity: showClosed ? 1 : 0, transition: 'max-height 0.4s ease, opacity 0.3s ease' }}>
+          <div style={{ borderTop: '1px solid #334155', padding: '16px 20px' }}>
+            {closed.length === 0 ? (
+              <p style={{ color: '#64748B', fontSize: 14, textAlign: 'center', padding: '20px 0' }}>
+                No closed positions yet. Use "Close Units" on a tranche to record a sell.
+              </p>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#334155' }}>
+                      {['Symbol', 'Type', 'Qty Sold', 'Buy Price', 'Sold Price', 'Realised P&L', 'Realised %', 'Sold Date', 'Actions'].map(h => (
+                        <th key={h} style={{
+                          padding: '10px 12px', color: '#F1F5F9', fontSize: 11, fontWeight: 700,
+                          textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+                          textAlign: ['Qty Sold', 'Buy Price', 'Sold Price', 'Realised P&L', 'Realised %'].includes(h) ? 'right' : 'left',
+                        }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {closed.map((inv, i) => {
+                      const realPnl    = (Number(inv.soldPrice) - Number(inv.purchasePrice)) * Number(inv.quantity);
+                      const realPnlPct = Number(inv.purchasePrice) > 0
+                        ? ((Number(inv.soldPrice) - Number(inv.purchasePrice)) / Number(inv.purchasePrice)) * 100
+                        : 0;
+                      const pnlCol = realPnl >= 0 ? '#10B981' : '#EF4444';
+                      return (
+                        <tr key={inv.id || i}
+                            style={{ backgroundColor: i % 2 === 0 ? '#1E2139' : '#1A2336', borderBottom: '1px solid #1E293B' }}>
+                          <td style={{ padding: '12px', color: '#F1F5F9', fontWeight: 700, fontFamily: 'monospace' }}>{inv.symbol}</td>
+                          <td style={{ padding: '12px' }}>
+                            <span style={{ backgroundColor: '#F59E0B20', color: '#F59E0B', padding: '2px 8px', borderRadius: 5, fontSize: 11, fontWeight: 700 }}>
+                              {inv.type}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{Number(inv.quantity).toLocaleString()}</td>
+                          <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(inv.purchasePrice, currency)}</td>
+                          <td style={{ padding: '12px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{inv.soldPrice ? formatCurrency(inv.soldPrice, currency) : '—'}</td>
+                          <td style={{ padding: '12px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrencySigned(realPnl, currency)}</td>
+                          <td style={{ padding: '12px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace' }}>{realPnl >= 0 ? '+' : ''}{realPnlPct.toFixed(2)}%</td>
+                          <td style={{ padding: '12px', color: '#64748B', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                            {inv.soldDate ? formatDate(inv.soldDate, dateFormat) : '—'}
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button onClick={() => handleReopen(inv.id)}
+                                      style={{ padding: '4px 10px', borderRadius: 5, border: 'none', backgroundColor: '#10B98120', color: '#10B981', fontSize: 11, cursor: 'pointer' }}>
+                                Reopen
+                              </button>
+                              <button onClick={() => setDeleteId(inv.id)}
+                                      style={{ padding: '4px 8px', borderRadius: 5, border: 'none', backgroundColor: '#EF444420', color: '#EF4444', fontSize: 11, cursor: 'pointer' }}>
+                                Del
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tranches modal ───────────────────────────────── */}
+      {trancheSymbol && (() => {
+        const tranches = active.filter(inv => inv.symbol === trancheSymbol);
+        if (tranches.length === 0) { setTrancheSymbol(null); return null; }
+        return (
+          <TranchesModal
+            symbol={trancheSymbol}
+            tranches={tranches}
+            currency={currency}
+            dateFormat={dateFormat}
+            onClose={() => setTrancheSymbol(null)}
+            onEdit={handleEdit}
+            onDelete={(id) => { handleDelete(id); }}
+            onPartialClose={handlePartialClose}
+          />
+        );
+      })()}
+
+      {/* ── Delete confirmation ───────────────────────────── */}
       {deleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
-             style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <div className="rounded-xl p-6 w-full max-w-sm shadow-2xl"
-               style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-            <h3 className="font-semibold text-lg mb-2" style={{ color: '#F1F5F9' }}>Remove holding?</h3>
-            <p className="text-sm mb-5" style={{ color: '#94A3B8' }}>This cannot be undone.</p>
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setDeleteId(null)} className="px-4 py-2 rounded-lg text-sm"
-                      style={{ border: '1px solid #334155', color: '#94A3B8' }}>Cancel</button>
-              <button onClick={() => handleDelete(deleteId)} className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
-                      style={{ backgroundColor: '#EF4444' }}>Delete</button>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ ...CARD, width: 360, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h3 style={{ color: '#F1F5F9', margin: 0, fontWeight: 700 }}>Delete Investment?</h3>
+              <button onClick={() => setDeleteId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <X size={18} color="#64748B" />
+              </button>
+            </div>
+            <p style={{ color: '#94A3B8', fontSize: 14, marginBottom: 20 }}>This cannot be undone.</p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => handleDelete(deleteId)}
+                      style={{ flex: 1, height: 44, backgroundColor: '#EF4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>Delete</button>
+              <button onClick={() => setDeleteId(null)}
+                      style={{ flex: 1, height: 44, backgroundColor: 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
             </div>
           </div>
         </div>
       )}
+
+      <Toast message={toast.message} type={toast.type} />
     </div>
   );
 }
-
-// ── Shared form field wrapper ─────────────────────────────────
-function Field({ label, required, error, children }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium mb-1" style={{ color: '#94A3B8' }}>
-        {label} {required && <span style={{ color: '#EF4444' }}>*</span>}
-      </label>
-      {children}
-      {error && <p className="text-xs mt-1" style={{ color: '#EF4444' }}>{error}</p>}
-    </div>
-  );
-}
-
-// ── Shared input style object ─────────────────────────────────
-const inputStyle = {
-  width: '100%', display: 'block',
-  backgroundColor: '#0F172A',
-  border: '1px solid #334155',
-  color: '#F1F5F9',
-  borderRadius: 8,
-  padding: '10px 12px',
-  fontSize: 14,
-  outline: 'none',
-};

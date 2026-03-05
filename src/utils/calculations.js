@@ -29,17 +29,31 @@ export const calculatePnLPercent = (investment) => {
   return ((Number(investment.currentPrice) - Number(investment.purchasePrice)) / Number(investment.purchasePrice)) * 100;
 };
 
-// Total portfolio current value
+// Active (open) investments only — excludes closed/sold positions
+export const activeInvestments = (investments) =>
+  investments.filter(inv => !inv.isClosed);
+
+// Total portfolio current value (active positions only)
 export const calculatePortfolioValue = (investments) =>
-  investments.reduce((sum, inv) => sum + (Number(inv.quantity) * Number(inv.currentPrice)), 0);
+  activeInvestments(investments)
+    .reduce((sum, inv) => sum + (Number(inv.quantity) * Number(inv.currentPrice)), 0);
 
-// Total portfolio cost basis
+// Total portfolio cost basis (active positions only)
 export const calculateCostBasis = (investments) =>
-  investments.reduce((sum, inv) => sum + (Number(inv.quantity) * Number(inv.purchasePrice)), 0);
+  activeInvestments(investments)
+    .reduce((sum, inv) => sum + (Number(inv.quantity) * Number(inv.purchasePrice)), 0);
 
-// Total unrealized P&L across all investments
+// Total unrealized P&L across all active investments
 export const calculateTotalPnL = (investments) =>
   calculatePortfolioValue(investments) - calculateCostBasis(investments);
+
+// Realized P&L from closed/sold positions
+// P&L = (soldPrice - purchasePrice) * quantity  for each closed entry
+export const calculateRealizedPnL = (investments) =>
+  investments
+    .filter(inv => inv.isClosed && inv.soldPrice)
+    .reduce((sum, inv) =>
+      sum + ((Number(inv.soldPrice) - Number(inv.purchasePrice)) * Number(inv.quantity)), 0);
 
 // --- MONTHLY CALCULATIONS ---
 // Filter entries to current calendar month
@@ -174,11 +188,12 @@ export const getExpensesByCategory = (expenses) => {
 };
 
 // --- ASSET ALLOCATION ---
-// Groups investments by type for pie chart
+// Groups active investments by type for pie chart
 export const getAssetAllocation = (investments) => {
+  const active = activeInvestments(investments);
   const total = calculatePortfolioValue(investments);
   const grouped = {};
-  investments.forEach(inv => {
+  active.forEach(inv => {
     const value = Number(inv.quantity) * Number(inv.currentPrice);
     grouped[inv.type] = (grouped[inv.type] || 0) + value;
   });

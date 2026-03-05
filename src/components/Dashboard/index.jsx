@@ -1,8 +1,7 @@
 // ============================================================
-// Dashboard/index.jsx — Financial overview at a glance
-// Shows: Net Worth, Monthly Expenses, Portfolio Value cards
-//        Net Worth trend chart, Cash Flow chart,
-//        Recent transactions, Financial health metrics
+// Dashboard/index.jsx — Complete financial overview
+// Layout: Net Worth (full) → 2-col metrics → Net Worth trend
+//         → Cash Flow + Health → Recent Transactions (full)
 // ============================================================
 
 import {
@@ -10,54 +9,31 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer,
 } from 'recharts';
-import { TrendingUp, TrendingDown, Minus, DollarSign, PieChart, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Activity, PieChart, Minus } from 'lucide-react';
 
 import {
   calculateNetWorth, calculatePortfolioValue, calculateTotalPnL,
-  filterCurrentMonth, getMonthlyTrend, calculateSavingsRate,
+  filterCurrentMonth, filterByMonth, getMonthlyTrend, calculateSavingsRate,
   calculateExpenseRatio, calculateInvestmentAllocation, getRecentTransactions,
+  calculatePnLPercent,
 } from '../../utils/calculations';
-import { formatCurrency, formatPercent, formatCurrencySigned, getAmountColour } from '../../utils/formatters';
+import { formatCurrency, formatPercent, formatCurrencySigned } from '../../utils/formatters';
 import { formatDate } from '../../utils/dateHelpers';
 
-// ── Reusable summary card ─────────────────────────────────────
-function SummaryCard({ title, value, subValue, subLabel, icon: Icon, trend, positive }) {
-  const trendColour = positive === true ? '#10B981' : positive === false ? '#EF4444' : '#64748B';
-  return (
-    <div className="rounded-xl p-5 flex flex-col gap-3"
-         style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium" style={{ color: '#94A3B8' }}>{title}</span>
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center"
-             style={{ backgroundColor: '#0F172A' }}>
-          <Icon size={18} color="#06B6D4" />
-        </div>
-      </div>
-      <div>
-        <div className="text-2xl font-bold font-mono" style={{ color: '#F1F5F9' }}>{value}</div>
-        {subValue && (
-          <div className="flex items-center gap-1 mt-1">
-            {trend === 'up'   && <TrendingUp  size={14} color={trendColour} />}
-            {trend === 'down' && <TrendingDown size={14} color={trendColour} />}
-            {trend === 'flat' && <Minus        size={14} color={trendColour} />}
-            <span className="text-sm font-medium" style={{ color: trendColour }}>{subValue}</span>
-            {subLabel && <span className="text-xs" style={{ color: '#64748B' }}>{subLabel}</span>}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+// ── Design tokens ──────────────────────────────────────────
+const C = {
+  card:    { backgroundColor: '#1E2139', border: '1px solid #334155', borderRadius: '10px' },
+  header:  { backgroundColor: '#1A2332', borderBottom: '1px solid #334155' },
+};
 
-// ── Custom tooltip for Recharts ───────────────────────────────
+// ── Custom Recharts tooltip ────────────────────────────────
 function ChartTooltip({ active, payload, label, currency = 'AUD' }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg p-3 text-sm shadow-xl"
-         style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-      <p className="font-semibold mb-2" style={{ color: '#F1F5F9' }}>{label}</p>
+    <div style={{ backgroundColor: '#1A2332', border: '1px solid #334155', borderRadius: '8px', padding: '10px 14px' }}>
+      <p style={{ color: '#CBD5E1', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{label}</p>
       {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color }}>
+        <p key={i} style={{ color: p.color, fontSize: 12 }}>
           {p.name}: {formatCurrency(p.value, currency)}
         </p>
       ))}
@@ -65,244 +41,344 @@ function ChartTooltip({ active, payload, label, currency = 'AUD' }) {
   );
 }
 
-// ── Transaction type badge ────────────────────────────────────
+// ── Type badge for recent transactions ────────────────────
 function TypeBadge({ type }) {
-  const styles = {
-    Income:     { bg: '#10B981/20', text: '#10B981' },
-    Expense:    { bg: '#EF4444/20', text: '#EF4444' },
-    Investment: { bg: '#06B6D4/20', text: '#06B6D4' },
+  const map = {
+    Income:     { bg: '#10B98120', color: '#10B981', label: '💵 Income'     },
+    Expense:    { bg: '#EF444420', color: '#EF4444', label: '💳 Expense'    },
+    Investment: { bg: '#06B6D420', color: '#06B6D4', label: '📈 Investment' },
   };
-  const s = styles[type] || styles.Expense;
+  const s = map[type] || map.Expense;
   return (
-    <span className="px-2 py-0.5 rounded text-xs font-medium"
-          style={{ backgroundColor: `${s.text}20`, color: s.text }}>
-      {type}
+    <span style={{
+      backgroundColor: s.bg, color: s.color,
+      borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700,
+      whiteSpace: 'nowrap',
+    }}>
+      {s.label}
     </span>
   );
 }
 
-// ── Main Dashboard component ──────────────────────────────────
+// ── Primary metric card (Net Worth — full width) ───────────
+function PrimaryCard({ netWorth, change30d, currency }) {
+  const positive = netWorth >= 0;
+  const changePositive = change30d >= 0;
+  return (
+    <div style={{ ...C.card, padding: '24px' }}>
+      <div className="flex items-start justify-between">
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CBD5E1', textTransform: 'uppercase', marginBottom: 8 }}>
+            💰 Net Worth
+          </div>
+          <div style={{ fontSize: 36, fontWeight: 900, fontFamily: 'monospace', color: '#F1F5F9', lineHeight: 1 }}>
+            {formatCurrency(netWorth, currency)}
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {changePositive
+              ? <TrendingUp size={14} color="#10B981" />
+              : <TrendingDown size={14} color="#EF4444" />}
+            <span style={{ color: changePositive ? '#10B981' : '#EF4444', fontSize: 13, fontWeight: 700 }}>
+              {formatCurrencySigned(change30d, currency)}
+            </span>
+            <span style={{ color: '#475569', fontSize: 12 }}>30-day change</span>
+            <span style={{
+              marginLeft: 8, padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700,
+              backgroundColor: positive ? '#10B98120' : '#EF444420',
+              color: positive ? '#10B981' : '#EF4444',
+            }}>
+              {positive ? '✓ Positive' : '↓ Negative'}
+            </span>
+          </div>
+        </div>
+        <div style={{
+          width: 52, height: 52, borderRadius: 12,
+          backgroundColor: '#06B6D420', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <DollarSign size={26} color="#06B6D4" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Secondary metric card (2-column) ──────────────────────
+function SecondaryCard({ label, value, sub, subColour, icon: Icon }) {
+  return (
+    <div style={{ ...C.card, padding: '20px' }}>
+      <div className="flex items-start justify-between mb-2">
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CBD5E1', textTransform: 'uppercase' }}>
+          {label}
+        </div>
+        <div style={{
+          width: 36, height: 36, borderRadius: 8,
+          backgroundColor: '#06B6D420', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Icon size={18} color="#06B6D4" />
+        </div>
+      </div>
+      <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9' }}>
+        {value}
+      </div>
+      {sub && (
+        <div style={{ marginTop: 4, fontSize: 12, fontWeight: 600, color: subColour || '#64748B' }}>
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Health metric row with progress bar ────────────────────
+function HealthMetric({ label, value, description, pct, good }) {
+  const colour = good ? '#10B981' : '#EF4444';
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ color: '#94A3B8', fontSize: 13 }}>{label}</span>
+        <span style={{ color: colour, fontSize: 13, fontWeight: 700, fontFamily: 'monospace' }}>{value}</span>
+      </div>
+      <p style={{ color: '#475569', fontSize: 11, marginBottom: 4 }}>{description}</p>
+      <div style={{ height: 4, borderRadius: 4, backgroundColor: '#334155' }}>
+        <div style={{
+          height: 4, borderRadius: 4,
+          width: `${Math.min(100, Math.max(0, pct))}%`,
+          backgroundColor: colour,
+          transition: 'width 0.5s ease',
+        }} />
+      </div>
+    </div>
+  );
+}
+
+// ── Main Dashboard component ───────────────────────────────
 export default function Dashboard({ data }) {
   const { income, investments, expenses, settings } = data;
-  const currency = settings?.currency || 'AUD';
+  const currency   = settings?.currency   || 'AUD';
+  const dateFormat = settings?.dateFormat || 'DD/MM/YYYY';
 
-  // Calculations
+  // Core metrics
   const netWorth        = calculateNetWorth(income, expenses, investments);
   const portfolioValue  = calculatePortfolioValue(investments);
   const totalPnL        = calculateTotalPnL(investments);
   const monthExpenses   = filterCurrentMonth(expenses).reduce((s, e) => s + Number(e.amount), 0);
   const monthIncome     = filterCurrentMonth(income).reduce((s, i) => s + Number(i.amount), 0);
-  const expensePct      = monthIncome > 0 ? ((monthExpenses / monthIncome) * 100).toFixed(0) : 0;
+  const expensePct      = monthIncome > 0 ? ((monthExpenses / monthIncome) * 100).toFixed(1) : '0.0';
   const savingsRate     = calculateSavingsRate(income, expenses);
   const expenseRatio    = calculateExpenseRatio(income, expenses);
   const investAlloc     = calculateInvestmentAllocation(income, expenses, investments);
-  const monthlyTrend    = getMonthlyTrend(income, expenses, 12);
-  const recentTx        = getRecentTransactions(income, investments, expenses, 5);
 
-  // Net worth trend data (cumulative)
-  let runningNetWorth = 0;
+  // 30-day change: current month income - expenses vs last month
+  const lastMonthIncome   = filterByMonth(income,   -1).reduce((s, i) => s + Number(i.amount), 0);
+  const lastMonthExpenses = filterByMonth(expenses, -1).reduce((s, e) => s + Number(e.amount), 0);
+  const change30d = (monthIncome - monthExpenses) - (lastMonthIncome - lastMonthExpenses);
+
+  // Portfolio P&L %
+  const pnlPct = investments.length > 0
+    ? (totalPnL / Math.max(1, portfolioValue - totalPnL)) * 100
+    : 0;
+
+  // Chart data
+  const monthlyTrend = getMonthlyTrend(income, expenses, 12);
+  const recentTx     = getRecentTransactions(income, investments, expenses, 5);
+
+  // Cumulative net worth trend
+  let running = 0;
   const netWorthTrend = monthlyTrend.map(m => {
-    runningNetWorth += (m.income - m.expenses);
-    return { month: m.month, netWorth: Math.max(0, runningNetWorth) };
+    running += (m.income - m.expenses);
+    return { month: m.month, 'Net Worth': Math.max(0, running) };
   });
 
   const hasData = income.length > 0 || expenses.length > 0 || investments.length > 0;
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-      {/* ── Page header ──────────────────────────────────── */}
+      {/* ── Section header ────────────────────────────────── */}
       <div>
-        <h1 className="text-2xl font-bold" style={{ color: '#F1F5F9' }}>Dashboard</h1>
-        <p className="text-sm mt-1" style={{ color: '#64748B' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: '#F1F5F9', margin: 0 }}>
+          DASHBOARD
+        </h1>
+        <p style={{ color: '#475569', fontSize: 13, marginTop: 2 }}>
           Your complete financial overview
         </p>
       </div>
 
-      {/* ── Empty state ──────────────────────────────────── */}
+      {/* ── Empty state ───────────────────────────────────── */}
       {!hasData && (
-        <div className="rounded-xl p-10 text-center"
-             style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-          <div className="text-4xl mb-3">💰</div>
-          <h3 className="text-lg font-semibold mb-2" style={{ color: '#F1F5F9' }}>
+        <div style={{ ...C.card, padding: '48px 24px', textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📭</div>
+          <h3 style={{ color: '#F1F5F9', fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
             Welcome to FinanceTracker
           </h3>
-          <p style={{ color: '#64748B' }}>
-            Start by adding income, investments or expenses using the tabs above.
-            Your dashboard will update automatically.
+          <p style={{ color: '#64748B', fontSize: 14 }}>
+            No entries yet. Add your first income, investment, or expense using the tabs above.
           </p>
         </div>
       )}
 
-      {/* ── Summary cards ────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <SummaryCard
-          title="Net Worth"
-          value={formatCurrency(netWorth, currency)}
-          subValue={netWorth >= 0 ? 'Positive' : 'Negative'}
-          subLabel="overall"
-          icon={DollarSign}
-          trend={netWorth >= 0 ? 'up' : 'down'}
-          positive={netWorth >= 0}
-        />
-        <SummaryCard
-          title="Monthly Expenses"
-          value={formatCurrency(monthExpenses, currency)}
-          subValue={`${expensePct}% of income`}
-          subLabel="this month"
-          icon={Activity}
-          trend={Number(expensePct) > 80 ? 'up' : 'flat'}
-          positive={Number(expensePct) <= 80}
-        />
-        <SummaryCard
-          title="Investment Portfolio"
-          value={formatCurrency(portfolioValue, currency)}
-          subValue={formatCurrencySigned(totalPnL, currency)}
-          subLabel="unrealised P&L"
-          icon={PieChart}
-          trend={totalPnL >= 0 ? 'up' : 'down'}
-          positive={totalPnL >= 0}
-        />
-      </div>
+      {hasData && (
+        <>
+          {/* ── Primary: Net Worth ────────────────────────── */}
+          <PrimaryCard netWorth={netWorth} change30d={change30d} currency={currency} />
 
-      {/* ── Charts row ───────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Net Worth Trend */}
-        <div className="rounded-xl p-5"
-             style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-          <h3 className="font-semibold mb-4" style={{ color: '#F1F5F9' }}>Net Worth Trend</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={netWorthTrend} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="netWorthGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#06B6D4" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#06B6D4" stopOpacity={0}   />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="month" tick={{ fill: '#64748B', fontSize: 11 }} tickLine={false} />
-              <YAxis tick={{ fill: '#64748B', fontSize: 11 }} tickLine={false} axisLine={false}
-                     tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-              <Tooltip content={<ChartTooltip currency={currency} />} />
-              <Area type="monotone" dataKey="netWorth" name="Net Worth"
-                    stroke="#06B6D4" strokeWidth={2}
-                    fill="url(#netWorthGrad)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Cash Flow Breakdown */}
-        <div className="rounded-xl p-5"
-             style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-          <h3 className="font-semibold mb-4" style={{ color: '#F1F5F9' }}>Cash Flow</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={monthlyTrend} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="month" tick={{ fill: '#64748B', fontSize: 11 }} tickLine={false} />
-              <YAxis tick={{ fill: '#64748B', fontSize: 11 }} tickLine={false} axisLine={false}
-                     tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-              <Tooltip content={<ChartTooltip currency={currency} />} />
-              <Legend wrapperStyle={{ fontSize: '12px', color: '#94A3B8' }} />
-              <Bar dataKey="income"   name="Income"   fill="#10B981" radius={[3,3,0,0]} />
-              <Bar dataKey="expenses" name="Expenses" fill="#EF4444" radius={[3,3,0,0]} />
-              <Bar dataKey="savings"  name="Savings"  fill="#06B6D4" radius={[3,3,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* ── Recent transactions + Health metrics ─────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-        {/* Recent Transactions */}
-        <div className="lg:col-span-2 rounded-xl p-5"
-             style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-          <h3 className="font-semibold mb-4" style={{ color: '#F1F5F9' }}>Recent Transactions</h3>
-          {recentTx.length === 0 ? (
-            <p className="text-sm text-center py-6" style={{ color: '#64748B' }}>
-              No transactions yet. Add income, investments or expenses to get started.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {recentTx.map((tx, i) => (
-                <div key={tx.id || i}
-                     className="flex items-center justify-between py-2 px-3 rounded-lg"
-                     style={{ backgroundColor: '#0F172A' }}>
-                  <div className="flex items-center gap-3 min-w-0">
-                    <TypeBadge type={tx.transactionType} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate" style={{ color: '#F1F5F9' }}>
-                        {tx.source || tx.symbol || tx.description || tx.category || '—'}
-                      </p>
-                      <p className="text-xs" style={{ color: '#64748B' }}>
-                        {formatDate(tx.date, settings?.dateFormat)}
-                      </p>
-                    </div>
-                  </div>
-                  <span className={`text-sm font-mono font-semibold ml-3 ${
-                    tx.transactionType === 'Income' ? 'text-emerald-400' :
-                    tx.transactionType === 'Expense' ? 'text-red-400' : 'text-cyan-400'
-                  }`}>
-                    {tx.transactionType === 'Expense' ? '-' : '+'}
-                    {formatCurrency(tx.amount, currency)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Financial Health Metrics */}
-        <div className="rounded-xl p-5"
-             style={{ backgroundColor: '#1E2139', border: '1px solid #334155' }}>
-          <h3 className="font-semibold mb-4" style={{ color: '#F1F5F9' }}>Financial Health</h3>
-          <div className="space-y-4">
-            <HealthMetric
-              label="Savings Rate"
-              value={formatPercent(savingsRate)}
-              description="of income saved"
-              good={savingsRate >= 20}
+          {/* ── Secondary: 2-col metrics ──────────────────── */}
+          <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 16 }}>
+            <SecondaryCard
+              label="📊 Monthly Expenses"
+              value={formatCurrency(monthExpenses, currency)}
+              sub={`${expensePct}% of this month's income`}
+              subColour={Number(expensePct) > 80 ? '#EF4444' : '#10B981'}
+              icon={Activity}
             />
-            <HealthMetric
-              label="Expense Ratio"
-              value={formatPercent(expenseRatio)}
-              description="of income spent"
-              good={expenseRatio <= 70}
-            />
-            <HealthMetric
-              label="Investment Allocation"
-              value={formatPercent(investAlloc)}
-              description="of net worth invested"
-              good={investAlloc >= 20}
+            <SecondaryCard
+              label="📈 Portfolio"
+              value={formatCurrency(portfolioValue, currency)}
+              sub={`${formatCurrencySigned(totalPnL, currency)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%) unrealised P&L`}
+              subColour={totalPnL >= 0 ? '#10B981' : '#EF4444'}
+              icon={PieChart}
             />
           </div>
-        </div>
-      </div>
 
-    </div>
-  );
-}
+          {/* ── Net Worth Trend (full width) ──────────────── */}
+          <div style={{ ...C.card, padding: '20px' }}>
+            <div style={{ ...C.header, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
+              <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>NET WORTH TREND</h3>
+              <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>12-month view</p>
+            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={netWorthTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="nwGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="10%"  stopColor="#06B6D4" stopOpacity={0.35} />
+                    <stop offset="90%" stopColor="#06B6D4" stopOpacity={0}   />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
+                <XAxis dataKey="month" tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} />
+                <YAxis tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} axisLine={false}
+                       tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+                <Tooltip content={<ChartTooltip currency={currency} />} />
+                <Area type="monotone" dataKey="Net Worth" stroke="#06B6D4" strokeWidth={2} fill="url(#nwGrad)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
 
-// ── Small health metric row ───────────────────────────────────
-function HealthMetric({ label, value, description, good }) {
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-1">
-        <span className="text-sm" style={{ color: '#94A3B8' }}>{label}</span>
-        <span className="text-sm font-semibold font-mono"
-              style={{ color: good ? '#10B981' : '#EF4444' }}>
-          {value}
-        </span>
-      </div>
-      <p className="text-xs" style={{ color: '#475569' }}>{description}</p>
-      <div className="mt-1 h-1 rounded-full" style={{ backgroundColor: '#334155' }}>
-        <div className="h-1 rounded-full transition-all"
-             style={{
-               width: `${Math.min(100, Math.max(0, parseFloat(value)))}%`,
-               backgroundColor: good ? '#10B981' : '#EF4444',
-             }} />
-      </div>
+          {/* ── Cash Flow + Financial Health ──────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 16 }}>
+
+            {/* Cash Flow */}
+            <div style={{ ...C.card, padding: '20px' }}>
+              <div style={{ ...C.header, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
+                <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>CASH FLOW</h3>
+                <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Income vs Expenses</p>
+              </div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={monthlyTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
+                  <XAxis dataKey="month" tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} />
+                  <YAxis tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} axisLine={false}
+                         tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+                  <Tooltip content={<ChartTooltip currency={currency} />} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#94A3B8', paddingTop: 8 }} />
+                  <Bar dataKey="income"   name="Income"   fill="#10B981" radius={[3,3,0,0]} maxBarSize={24} />
+                  <Bar dataKey="expenses" name="Expenses" fill="#EF4444" radius={[3,3,0,0]} maxBarSize={24} />
+                  <Bar dataKey="savings"  name="Savings"  fill="#06B6D4" radius={[3,3,0,0]} maxBarSize={24} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Financial Health */}
+            <div style={{ ...C.card, padding: '20px' }}>
+              <div style={{ ...C.header, padding: '14px 20px', margin: '-20px -20px 20px', borderRadius: '10px 10px 0 0' }}>
+                <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>FINANCIAL HEALTH</h3>
+                <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Key ratios</p>
+              </div>
+              <HealthMetric
+                label="Savings Rate"
+                value={formatPercent(savingsRate)}
+                description="(Income − Expenses) ÷ Income"
+                pct={savingsRate}
+                good={savingsRate >= 20}
+              />
+              <HealthMetric
+                label="Expense Ratio"
+                value={formatPercent(expenseRatio)}
+                description="Expenses ÷ Income"
+                pct={expenseRatio}
+                good={expenseRatio <= 70}
+              />
+              <HealthMetric
+                label="Investment Allocation"
+                value={formatPercent(investAlloc)}
+                description="Portfolio Value ÷ Net Worth"
+                pct={investAlloc}
+                good={investAlloc >= 20}
+              />
+            </div>
+          </div>
+
+          {/* ── Recent Transactions (full width) ─────────── */}
+          <div style={{ ...C.card, padding: '20px' }}>
+            <div style={{ ...C.header, padding: '14px 20px', margin: '-20px -20px 0', borderRadius: '10px 10px 0 0' }}>
+              <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>RECENT TRANSACTIONS</h3>
+              <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Last 5 entries across all categories</p>
+            </div>
+
+            {recentTx.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px 0', color: '#64748B', fontSize: 14 }}>
+                📭 No transactions yet. Add your first using the tabs above.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#334155' }}>
+                      {['Date', 'Type', 'Description', 'Amount'].map(h => (
+                        <th key={h} style={{
+                          padding: '10px 12px', textAlign: h === 'Amount' ? 'right' : 'left',
+                          color: '#F1F5F9', fontSize: 12, fontWeight: 700,
+                          textTransform: 'uppercase', letterSpacing: '0.05em',
+                        }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentTx.map((tx, i) => {
+                      const isIncome = tx.transactionType === 'Income';
+                      const isInvest = tx.transactionType === 'Investment';
+                      const amtColour = isIncome ? '#10B981' : isInvest ? '#06B6D4' : '#EF4444';
+                      const prefix    = isIncome || isInvest ? '+' : '-';
+                      return (
+                        <tr key={tx.id || i}
+                            style={{
+                              backgroundColor: i % 2 === 0 ? '#1E2139' : '#1A2336',
+                              borderBottom: '1px solid #1E293B',
+                            }}>
+                          <td style={{ padding: '12px', color: '#94A3B8', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                            {formatDate(tx.date, dateFormat)}
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <TypeBadge type={tx.transactionType} />
+                          </td>
+                          <td style={{ padding: '12px', color: '#F1F5F9', fontSize: 13 }}>
+                            {tx.source || tx.symbol || tx.description || tx.category || '—'}
+                          </td>
+                          <td style={{ padding: '12px', textAlign: 'right', color: amtColour, fontFamily: 'monospace', fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap' }}>
+                            {prefix}{formatCurrency(tx.amount, currency)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

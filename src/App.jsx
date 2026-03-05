@@ -9,7 +9,7 @@ import { LayoutDashboard, TrendingUp, LineChart, CreditCard, Settings, Menu, X }
 
 import { loadAllData, saveData, STORAGE_KEYS } from './utils/storage';
 
-// Tab components (built one by one)
+// Tab components
 import Dashboard   from './components/Dashboard/index';
 import Income      from './components/Income/index';
 import Investments from './components/Investments/index';
@@ -26,29 +26,22 @@ const TABS = [
 ];
 
 export default function App() {
-  // ── Active tab ─────────────────────────────────────────────
-  const [activeTab,  setActiveTab]  = useState('dashboard');
-  const [menuOpen,   setMenuOpen]   = useState(false);   // mobile nav
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [menuOpen,  setMenuOpen]  = useState(false);
+  const [data,      setData]      = useState(() => loadAllData());
 
-  // ── Global data state — loaded from localStorage on startup ─
-  const [data, setData] = useState(() => loadAllData());
-
-  // ── Generic updater — saves to localStorage and updates state
-  // Usage: updateData('income', updatedArray)
   const updateData = useCallback((key, newValue) => {
     const storageKey = STORAGE_KEYS[key.toUpperCase()];
     if (storageKey) saveData(storageKey, newValue);
     setData(prev => ({ ...prev, [key]: newValue }));
   }, []);
 
-  // ── Shortcut updaters passed down as props ─────────────────
   const setIncome      = useCallback(v => updateData('income',      v), [updateData]);
   const setInvestments = useCallback(v => updateData('investments', v), [updateData]);
   const setExpenses    = useCallback(v => updateData('expenses',    v), [updateData]);
   const setBudgets     = useCallback(v => updateData('budgets',     v), [updateData]);
   const setSettings    = useCallback(v => updateData('settings',    v), [updateData]);
 
-  // ── Render active tab ──────────────────────────────────────
   const renderTab = () => {
     const shared = { data, setIncome, setInvestments, setExpenses, setBudgets, setSettings };
     switch (activeTab) {
@@ -61,40 +54,63 @@ export default function App() {
     }
   };
 
+  // Today label for header
+  const todayLabel = new Date().toLocaleDateString('en-AU', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+  });
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#0F172A', color: '#F1F5F9' }}>
 
-      {/* ── TOP NAVIGATION BAR ─────────────────────────────── */}
-      <nav style={{ backgroundColor: '#1E293B', borderBottom: '1px solid #334155' }}
+      {/* ── TOP NAVIGATION BAR ───────────────────────────── */}
+      <nav style={{ backgroundColor: '#0B1120', borderBottom: '2px solid #1E293B' }}
            className="sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between h-16">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex items-center justify-between" style={{ height: '64px' }}>
 
             {/* Logo */}
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg"
                    style={{ backgroundColor: '#06B6D4' }}>
-                <span className="text-white font-bold text-sm">₿</span>
+                <span className="text-white font-black" style={{ fontSize: '18px' }}>₿</span>
               </div>
-              <span className="font-bold text-lg" style={{ color: '#F1F5F9' }}>
-                FinanceTracker
-              </span>
+              <div>
+                <span className="font-black tracking-tight" style={{ fontSize: '18px', color: '#F1F5F9' }}>
+                  FinanceTracker
+                </span>
+                <div className="hidden lg:block text-xs" style={{ color: '#475569', marginTop: '-2px' }}>
+                  Personal Finance Dashboard
+                </div>
+              </div>
             </div>
 
             {/* Desktop tabs */}
             <div className="hidden md:flex items-center gap-1">
               {TABS.map(tab => {
-                const Icon    = tab.icon;
+                const Icon     = tab.icon;
                 const isActive = activeTab === tab.id;
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150"
+                    aria-label={tab.label}
                     style={{
+                      height: '44px',
+                      padding: '0 18px',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: '14px',
+                      fontWeight: isActive ? '700' : '500',
                       backgroundColor: isActive ? '#06B6D4' : 'transparent',
-                      color:           isActive ? '#ffffff' : '#94A3B8',
+                      color: isActive ? '#ffffff' : '#CBD5E1',
+                      border: 'none',
+                      cursor: 'pointer',
+                      transition: 'all 150ms ease',
                     }}
+                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.backgroundColor = '#1E293B'; }}
+                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.backgroundColor = 'transparent'; }}
                   >
                     <Icon size={16} />
                     {tab.label}
@@ -103,33 +119,39 @@ export default function App() {
               })}
             </div>
 
-            {/* Mobile hamburger */}
-            <button
-              className="md:hidden p-2 rounded-lg"
-              style={{ color: '#94A3B8' }}
-              onClick={() => setMenuOpen(o => !o)}
-              aria-label="Toggle menu"
-            >
-              {menuOpen ? <X size={22} /> : <Menu size={22} />}
-            </button>
+            {/* Right side: date + mobile menu */}
+            <div className="flex items-center gap-3">
+              <span className="hidden lg:block text-xs font-mono" style={{ color: '#475569' }}>
+                {todayLabel}
+              </span>
+              <button
+                className="md:hidden p-2 rounded-lg"
+                style={{ color: '#94A3B8' }}
+                onClick={() => setMenuOpen(o => !o)}
+                aria-label="Toggle menu"
+              >
+                {menuOpen ? <X size={22} /> : <Menu size={22} />}
+              </button>
+            </div>
+
           </div>
         </div>
 
-        {/* Mobile dropdown menu */}
+        {/* Mobile dropdown */}
         {menuOpen && (
-          <div className="md:hidden px-4 pb-3 flex flex-col gap-1"
-               style={{ borderTop: '1px solid #334155' }}>
+          <div className="md:hidden px-4 pb-4 flex flex-col gap-1"
+               style={{ borderTop: '1px solid #1E293B', backgroundColor: '#0B1120' }}>
             {TABS.map(tab => {
-              const Icon    = tab.icon;
+              const Icon     = tab.icon;
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => { setActiveTab(tab.id); setMenuOpen(false); }}
-                  className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium w-full text-left"
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium w-full text-left transition-all"
                   style={{
                     backgroundColor: isActive ? '#06B6D4' : 'transparent',
-                    color:           isActive ? '#ffffff' : '#94A3B8',
+                    color:           isActive ? '#ffffff' : '#CBD5E1',
                   }}
                 >
                   <Icon size={18} />
@@ -141,8 +163,8 @@ export default function App() {
         )}
       </nav>
 
-      {/* ── MAIN CONTENT ───────────────────────────────────── */}
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      {/* ── MAIN CONTENT ─────────────────────────────────── */}
+      <main className="max-w-7xl mx-auto" style={{ padding: '24px' }}>
         {renderTab()}
       </main>
 
