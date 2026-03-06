@@ -4,6 +4,7 @@
 //        (16th–15th), quick filters, filter defaults
 // ============================================================
 
+import React from 'react';
 import { useState, useMemo, useCallback, useRef } from 'react';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -833,7 +834,7 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
     fDateFrom === cycleStart && fDateTo === today    ? 'paycycle'  : null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 24 }}>
 
       {/* Page header */}
       <div>
@@ -844,55 +845,42 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
         </p>
       </div>
 
-      {/* ── Budget Overview ────────────────────────────────── */}
-      <div style={{ ...CARD, padding: '24px' }}>
-        <div className="grid grid-cols-1 md:grid-cols-3" style={{ gap: 24, marginBottom: 20 }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
-              Total Budget
-            </div>
-            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9' }}>
-              {formatCurrency(totalBudget, currency)}
-            </div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
-              Total Spent
-            </div>
-            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color: '#EF4444' }}>
-              {formatCurrency(monthTotal, currency)}
-            </div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#CBD5E1', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
-              Remaining
-            </div>
-            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color: budgetRemaining >= 0 ? '#10B981' : '#EF4444' }}>
-              {formatCurrency(Math.abs(budgetRemaining), currency)}
+      {/* ── Budget Overview (compact single-line) ─────────── */}
+      <div style={{ ...CARD, padding: '14px 16px' }}>
+        {/* Single line: Budget | Spent | Remaining */}
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 16px', marginBottom: totalBudget > 0 ? 8 : 0 }}>
+          <span style={{ fontSize: 13, color: '#CBD5E1' }}>
+            Budget: <strong style={{ fontFamily: 'monospace', color: '#F1F5F9' }}>{formatCurrency(totalBudget, currency)}</strong>
+          </span>
+          <span style={{ color: '#334155' }}>|</span>
+          <span style={{ fontSize: 13, color: '#CBD5E1' }}>
+            Spent: <strong style={{ fontFamily: 'monospace', color: '#EF4444' }}>{formatCurrency(monthTotal, currency)}</strong>
+          </span>
+          <span style={{ color: '#334155' }}>|</span>
+          <span style={{ fontSize: 13, color: '#CBD5E1' }}>
+            Remaining: <strong style={{ fontFamily: 'monospace', color: budgetRemaining >= 0 ? '#10B981' : '#EF4444' }}>
+              {budgetRemaining < 0 ? '-' : ''}{formatCurrency(Math.abs(budgetRemaining), currency)}
               {budgetRemaining < 0 ? ' over' : ''}
-            </div>
-          </div>
+            </strong>
+          </span>
+          {totalBudget > 0 && (
+            <span style={{ marginLeft: 4, padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, backgroundColor: budgetColour + '20', color: budgetColour }}>
+              {budgetStatus}
+            </span>
+          )}
+          {totalBudget === 0 && (
+            <span style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>Set budgets below</span>
+          )}
         </div>
 
+        {/* Slim progress bar */}
         {totalBudget > 0 && (
-          <>
-            <div style={{ height: 12, borderRadius: 8, backgroundColor: '#334155', overflow: 'hidden', marginBottom: 8 }}>
-              <div style={{ height: '100%', borderRadius: 8, width: `${Math.min(100, budgetPct)}%`, backgroundColor: budgetColour, transition: 'width 0.5s ease' }} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: budgetColour, fontSize: 13, fontWeight: 700 }}>{budgetStatus}</span>
-              <span style={{ color: '#64748B', fontSize: 12 }}>{budgetPct.toFixed(1)}% used</span>
-            </div>
-          </>
+          <div style={{ height: 6, borderRadius: 4, backgroundColor: '#334155', overflow: 'hidden', marginBottom: 10 }}>
+            <div style={{ height: '100%', borderRadius: 4, width: `${Math.min(100, budgetPct)}%`, backgroundColor: budgetColour, transition: 'width 0.5s ease' }} />
+          </div>
         )}
 
-        {totalBudget === 0 && (
-          <p style={{ color: '#475569', fontSize: 12, marginBottom: 0 }}>
-            Set category budgets to track your monthly spending limits.
-          </p>
-        )}
-
-        <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button onClick={() => setBudgetEdit(b => !b)}
                   style={{ height: 40, padding: '0 16px', backgroundColor: budgetEdit ? '#334155' : 'transparent', color: '#94A3B8', border: '1px solid #334155', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             {budgetEdit ? 'Cancel' : '⚙️ Set Budgets'}
@@ -1037,20 +1025,20 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
       </div>
 
       {/* ── 2×2 Charts ────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 16 }}>
+      <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 16 }}>
 
         {/* Top Categories — horizontal bar */}
-        <div style={{ ...CARD, padding: '20px' }}>
-          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>THIS CYCLE — TOP CATEGORIES</h3>
+        <div style={{ ...CARD, padding: '16px' }}>
+          <div style={{ ...HDR, padding: '12px 16px', margin: '-16px -16px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700, margin: 0 }}>THIS CYCLE — TOP CATEGORIES</h3>
             <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Current pay cycle ({cycleLabel})</p>
           </div>
           {topCategories.length === 0 ? (
             <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>
-              📭 No expenses in this pay cycle.
+              No expenses in this pay cycle.
             </p>
           ) : (
-            <ResponsiveContainer width="100%" height={Math.max(180, topCategories.length * 30)}>
+            <ResponsiveContainer width="100%" height={Math.min(280, Math.max(160, topCategories.length * 28))}>
               <BarChart data={topCategories} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" horizontal={false} />
                 <XAxis type="number" tick={{ fill: '#475569', fontSize: 10 }} tickLine={false}
@@ -1065,16 +1053,16 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
         </div>
 
         {/* All-time Distribution — pie */}
-        <div style={{ ...CARD, padding: '20px' }}>
-          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>ALL-TIME DISTRIBUTION</h3>
+        <div style={{ ...CARD, padding: '16px' }}>
+          <div style={{ ...HDR, padding: '12px 16px', margin: '-16px -16px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700, margin: 0 }}>ALL-TIME DISTRIBUTION</h3>
           </div>
           {pieData.length === 0 ? (
             <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>
-              📭 No expense data yet.
+              No expense data yet.
             </p>
           ) : (
-            <ResponsiveContainer width="100%" height={240}>
+            <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={90}
                      dataKey="value" nameKey="name"
@@ -1089,11 +1077,11 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
         </div>
 
         {/* Monthly Expenses Trend — line chart */}
-        <div style={{ ...CARD, padding: '20px' }}>
-          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>MONTHLY EXPENSES (12 months)</h3>
+        <div style={{ ...CARD, padding: '16px' }}>
+          <div style={{ ...HDR, padding: '12px 16px', margin: '-16px -16px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700, margin: 0 }}>MONTHLY EXPENSES (12 months)</h3>
           </div>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={240}>
             <LineChart data={trendData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
               <XAxis dataKey="month" tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} />
@@ -1107,9 +1095,9 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
         </div>
 
         {/* Spending Calendar */}
-        <div style={{ ...CARD, padding: '20px' }}>
-          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>SPENDING CALENDAR</h3>
+        <div style={{ ...CARD, padding: '16px' }}>
+          <div style={{ ...HDR, padding: '12px 16px', margin: '-16px -16px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700, margin: 0 }}>SPENDING CALENDAR</h3>
           </div>
           <SpendingCalendar expenses={expenses} />
         </div>
@@ -1229,24 +1217,24 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
                         style={{ backgroundColor: i % 2 === 0 ? '#1E2139' : '#1A2336', borderBottom: '1px solid #1E293B' }}
                         onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1F2437'}
                         onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? '#1E2139' : '#1A2336'}>
-                      <td style={{ padding: '12px', color: '#94A3B8', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px', color: '#94A3B8', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                         {formatDate(exp.date, dateFormat)}
                       </td>
-                      <td style={{ padding: '12px' }}>
+                      <td style={{ padding: '10px' }}>
                         <span style={{ backgroundColor: '#EF444420', color: '#EF4444', padding: '3px 8px', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>
                           {exp.category}
                         </span>
                       </td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: '#EF4444', fontFamily: 'monospace', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px', textAlign: 'right', color: '#EF4444', fontFamily: 'monospace', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' }}>
                         -{formatCurrency(exp.amount, currency)}
                       </td>
-                      <td style={{ padding: '12px', color: '#F1F5F9', fontSize: 13, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px', color: '#F1F5F9', fontSize: 13, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {exp.description || '—'}
                       </td>
-                      <td style={{ padding: '12px', color: '#64748B', fontSize: 12 }}>
+                      <td style={{ padding: '10px', color: '#64748B', fontSize: 12 }}>
                         {exp.paymentMethod || '—'}
                       </td>
-                      <td style={{ padding: '12px', textAlign: 'right' }}>
+                      <td style={{ padding: '10px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
                           <button onClick={() => handleEdit(exp)} title="Edit"
                                   style={{ width: 30, height: 30, borderRadius: 6, border: 'none', backgroundColor: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}

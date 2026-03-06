@@ -4,6 +4,7 @@
 //      professional table, improved charts
 // ============================================================
 
+import React from 'react';
 import { useState, useMemo, useCallback } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
@@ -85,12 +86,21 @@ function ChartTip({ active, payload, label, currency = 'AUD' }) {
 
 // ── Stat card ──────────────────────────────────────────────
 function StatCard({ label, value, sub }) {
+  const [hovered, setHovered] = React.useState(false);
   return (
-    <div style={{ ...CARD, padding: '20px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CBD5E1', textTransform: 'uppercase', marginBottom: 8 }}>
+    <div
+      style={{
+        ...CARD, padding: '14px', overflow: 'hidden', minWidth: 0,
+        transition: 'box-shadow 200ms ease',
+        boxShadow: hovered ? '0 4px 12px rgba(0,0,0,0.3)' : 'none',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CBD5E1', textTransform: 'uppercase', marginBottom: 6 }}>
         {label}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9' }}>
+      <div style={{ fontSize: 24, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9', wordBreak: 'break-all', minWidth: 0 }}>
         {value}
       </div>
       {sub && <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>{sub}</div>}
@@ -217,7 +227,7 @@ export default function Income({ data, setIncome }) {
   const si = k => sortKey === k ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 24 }}>
 
       {/* Page header */}
       <div>
@@ -317,17 +327,17 @@ export default function Income({ data, setIncome }) {
         <StatCard label="Highest Entry" value={formatCurrency(stats.highest,   currency)} sub={stats.highestSource} />
       </div>
 
-      {/* ── Charts ──────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 16 }}>
+      {/* ── Charts (side-by-side) ───────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 16 }}>
         {/* Pie */}
-        <div style={{ ...CARD, padding: '20px' }}>
-          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>INCOME BY SOURCE</h3>
+        <div style={{ ...CARD, padding: '16px' }}>
+          <div style={{ ...HDR, padding: '12px 16px', margin: '-16px -16px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700, margin: 0 }}>INCOME BY SOURCE</h3>
           </div>
           {pieData.length === 0 ? (
-            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>📭 No data yet.</p>
+            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>No data yet.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={260}>
               <PieChart>
                 <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={90}
                      dataKey="value" nameKey="name"
@@ -342,11 +352,11 @@ export default function Income({ data, setIncome }) {
           )}
         </div>
         {/* Bar */}
-        <div style={{ ...CARD, padding: '20px' }}>
-          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>MONTHLY INCOME (12 months)</h3>
+        <div style={{ ...CARD, padding: '16px' }}>
+          <div style={{ ...HDR, padding: '12px 16px', margin: '-16px -16px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700, margin: 0 }}>MONTHLY INCOME (12 months)</h3>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={260}>
             <BarChart data={trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
               <XAxis dataKey="month" tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} />
@@ -434,20 +444,20 @@ export default function Income({ data, setIncome }) {
                         style={{ backgroundColor: i % 2 === 0 ? '#1E2139' : '#1A2336', borderBottom: '1px solid #1E293B' }}
                         onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1F2437'}
                         onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? '#1E2139' : '#1A2336'}>
-                      <td style={{ padding: '12px', color: '#94A3B8', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px', color: '#94A3B8', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                         {formatDate(entry.date, dateFormat)}
                       </td>
-                      <td style={{ padding: '12px' }}>
+                      <td style={{ padding: '10px' }}>
                         <span style={{ backgroundColor: '#10B98120', color: '#10B981', padding: '3px 8px', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>
                           {entry.source}
                         </span>
                       </td>
-                      <td style={{ padding: '12px', color: '#94A3B8', fontSize: 13 }}>{entry.incomeFrom || '—'}</td>
-                      <td style={{ padding: '12px', color: '#94A3B8', fontSize: 13 }}>{entry.recipient || '—'}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: '#10B981', fontFamily: 'monospace', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px', color: '#94A3B8', fontSize: 13 }}>{entry.incomeFrom || '—'}</td>
+                      <td style={{ padding: '10px', color: '#94A3B8', fontSize: 13 }}>{entry.recipient || '—'}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', color: '#10B981', fontFamily: 'monospace', fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' }}>
                         +{formatCurrency(entry.amount, currency)}
                       </td>
-                      <td style={{ padding: '12px', textAlign: 'right' }}>
+                      <td style={{ padding: '10px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
                           <IconBtn onClick={() => handleEdit(entry)} title="Edit" icon={Edit2} />
                           <IconBtn onClick={() => setDeleteId(entry.id)} title="Delete" icon={Trash2} colour="#EF4444" hoverBg="#EF444420" />

@@ -6,6 +6,7 @@
 //           P&L bar chart, Holdings heatmap, Collapsible form
 // ============================================================
 
+import React from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar,
@@ -91,12 +92,21 @@ function ChartTip({ active, payload, label, currency = 'AUD', isPct = false }) {
 
 // ── Stat card ──────────────────────────────────────────────
 function StatCard({ label, value, sub, subColour }) {
+  const [hovered, setHovered] = React.useState(false);
   return (
-    <div style={{ ...CARD, padding: '20px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CBD5E1', textTransform: 'uppercase', marginBottom: 8 }}>
+    <div
+      style={{
+        ...CARD, padding: '14px', overflow: 'hidden', minWidth: 0,
+        transition: 'box-shadow 200ms ease',
+        boxShadow: hovered ? '0 4px 12px rgba(0,0,0,0.3)' : 'none',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CBD5E1', textTransform: 'uppercase', marginBottom: 6 }}>
         {label}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9' }}>
+      <div style={{ fontSize: 24, fontWeight: 800, fontFamily: 'monospace', color: '#F1F5F9', wordBreak: 'break-all', minWidth: 0 }}>
         {value}
       </div>
       {sub !== undefined && (
@@ -635,7 +645,7 @@ export default function Investments({ data, setInvestments }) {
   , [holdings, portfolioValue]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 24 }}>
 
       {/* ── Page header ──────────────────────────────────── */}
       <div>
@@ -855,18 +865,18 @@ export default function Investments({ data, setInvestments }) {
                         onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1F2437'}
                         onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? '#1E2139' : '#1A2336'}
                         title="Click to view individual tranches">
-                      <td style={{ padding: '12px', fontWeight: 700, color: '#F1F5F9', fontFamily: 'monospace' }}>
+                      <td style={{ padding: '10px', fontWeight: 700, color: '#F1F5F9', fontFamily: 'monospace' }}>
                         {h.symbol}
                         <span style={{ marginLeft: 6, fontSize: 10, color: '#475569' }}>({h.tranches.length} lots)</span>
                       </td>
-                      <td style={{ padding: '12px' }}>
+                      <td style={{ padding: '10px' }}>
                         <span style={{ backgroundColor: '#06B6D420', color: '#06B6D4', padding: '2px 8px', borderRadius: 5, fontSize: 11, fontWeight: 700 }}>
                           {h.type}
                         </span>
                       </td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{h.qty.toLocaleString()}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.avgBuy, currency)}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace', fontSize: 12 }}>
+                      <td style={{ padding: '10px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{h.qty.toLocaleString()}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.avgBuy, currency)}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', fontFamily: 'monospace', fontSize: 12 }}>
                         {priceStatus[h.symbol]?.status === 'ok'
                           ? <span title={`Live · ${priceStatus[h.symbol].source} · ${priceStatus[h.symbol].fetchedAs ?? h.symbol}`} style={{ color: '#10B981', fontSize: 9, verticalAlign: 'middle', marginRight: 4 }}>●</span>
                           : priceStatus[h.symbol]?.status === 'fail'
@@ -887,10 +897,10 @@ export default function Investments({ data, setInvestments }) {
                         )}
                         <span style={{ color: '#94A3B8' }}>{formatCurrency(h.curPri, currency)}</span>
                       </td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.cost, currency)}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: '#F1F5F9', fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrency(h.value, currency)}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrencySigned(h.pnl, currency)}</td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>
+                      <td style={{ padding: '10px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.cost, currency)}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', color: '#F1F5F9', fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrency(h.value, currency)}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrencySigned(h.pnl, currency)}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>
                         {h.pnl >= 0 ? '+' : ''}{h.pnlPct.toFixed(2)}%
                       </td>
                     </tr>
@@ -900,11 +910,11 @@ export default function Investments({ data, setInvestments }) {
               {/* Totals row */}
               <tfoot>
                 <tr style={{ backgroundColor: '#0F172A', borderTop: '2px solid #334155' }}>
-                  <td colSpan={5} style={{ padding: '12px', color: '#CBD5E1', fontWeight: 700, fontSize: 13 }}>TOTAL</td>
-                  <td style={{ padding: '12px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrency(costBasis, currency)}</td>
-                  <td style={{ padding: '12px', textAlign: 'right', color: '#F1F5F9', fontFamily: 'monospace', fontWeight: 800, fontSize: 14 }}>{formatCurrency(portfolioValue, currency)}</td>
-                  <td style={{ padding: '12px', textAlign: 'right', color: totalPnL >= 0 ? '#10B981' : '#EF4444', fontFamily: 'monospace', fontWeight: 800 }}>{formatCurrencySigned(totalPnL, currency)}</td>
-                  <td style={{ padding: '12px', textAlign: 'right', color: totalPnL >= 0 ? '#10B981' : '#EF4444', fontFamily: 'monospace', fontWeight: 800 }}>{totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%</td>
+                  <td colSpan={5} style={{ padding: '10px', color: '#CBD5E1', fontWeight: 700, fontSize: 13 }}>TOTAL</td>
+                  <td style={{ padding: '10px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrency(costBasis, currency)}</td>
+                  <td style={{ padding: '10px', textAlign: 'right', color: '#F1F5F9', fontFamily: 'monospace', fontWeight: 800, fontSize: 14 }}>{formatCurrency(portfolioValue, currency)}</td>
+                  <td style={{ padding: '10px', textAlign: 'right', color: totalPnL >= 0 ? '#10B981' : '#EF4444', fontFamily: 'monospace', fontWeight: 800 }}>{formatCurrencySigned(totalPnL, currency)}</td>
+                  <td style={{ padding: '10px', textAlign: 'right', color: totalPnL >= 0 ? '#10B981' : '#EF4444', fontFamily: 'monospace', fontWeight: 800 }}>{totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%</td>
                 </tr>
               </tfoot>
             </table>
@@ -912,18 +922,18 @@ export default function Investments({ data, setInvestments }) {
         )}
       </div>
 
-      {/* ── Charts (2 column) ─────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 16 }}>
+      {/* ── Charts (side-by-side) ─────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: 16 }}>
 
         {/* Asset Allocation Pie */}
-        <div style={{ ...CARD, padding: '20px' }}>
-          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>ASSET ALLOCATION</h3>
+        <div style={{ ...CARD, padding: '16px' }}>
+          <div style={{ ...HDR, padding: '12px 16px', margin: '-16px -16px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700, margin: 0 }}>ASSET ALLOCATION</h3>
           </div>
           {allocationData.length === 0 ? (
-            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>📭 No data.</p>
+            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>No data.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={270}>
               <PieChart>
                 <Pie data={allocationData} cx="50%" cy="50%" innerRadius={55} outerRadius={90}
                      dataKey="value" nameKey="name"
@@ -938,14 +948,14 @@ export default function Investments({ data, setInvestments }) {
         </div>
 
         {/* Performance P&L % Bar */}
-        <div style={{ ...CARD, padding: '20px' }}>
-          <div style={{ ...HDR, padding: '14px 20px', margin: '-20px -20px 16px', borderRadius: '10px 10px 0 0' }}>
-            <h3 style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: 0 }}>PERFORMANCE P&L %</h3>
+        <div style={{ ...CARD, padding: '16px' }}>
+          <div style={{ ...HDR, padding: '12px 16px', margin: '-16px -16px 16px', borderRadius: '10px 10px 0 0' }}>
+            <h3 style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700, margin: 0 }}>PERFORMANCE P&L %</h3>
           </div>
           {performanceData.length === 0 ? (
-            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>📭 No data.</p>
+            <p style={{ color: '#64748B', textAlign: 'center', padding: '32px 0', fontSize: 14 }}>No data.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={270}>
               <BarChart data={performanceData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
                 <XAxis dataKey="symbol" tick={{ fill: '#475569', fontSize: 11 }} tickLine={false} />
@@ -1019,21 +1029,21 @@ export default function Investments({ data, setInvestments }) {
                       return (
                         <tr key={inv.id || i}
                             style={{ backgroundColor: i % 2 === 0 ? '#1E2139' : '#1A2336', borderBottom: '1px solid #1E293B' }}>
-                          <td style={{ padding: '12px', color: '#F1F5F9', fontWeight: 700, fontFamily: 'monospace' }}>{inv.symbol}</td>
-                          <td style={{ padding: '12px' }}>
+                          <td style={{ padding: '10px', color: '#F1F5F9', fontWeight: 700, fontFamily: 'monospace' }}>{inv.symbol}</td>
+                          <td style={{ padding: '10px' }}>
                             <span style={{ backgroundColor: '#F59E0B20', color: '#F59E0B', padding: '2px 8px', borderRadius: 5, fontSize: 11, fontWeight: 700 }}>
                               {inv.type}
                             </span>
                           </td>
-                          <td style={{ padding: '12px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{Number(inv.quantity).toLocaleString()}</td>
-                          <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(inv.purchasePrice, currency)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{inv.soldPrice ? formatCurrency(inv.soldPrice, currency) : '—'}</td>
-                          <td style={{ padding: '12px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrencySigned(realPnl, currency)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace' }}>{realPnl >= 0 ? '+' : ''}{realPnlPct.toFixed(2)}%</td>
-                          <td style={{ padding: '12px', color: '#64748B', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '10px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{Number(inv.quantity).toLocaleString()}</td>
+                          <td style={{ padding: '10px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(inv.purchasePrice, currency)}</td>
+                          <td style={{ padding: '10px', textAlign: 'right', color: '#CBD5E1', fontFamily: 'monospace' }}>{inv.soldPrice ? formatCurrency(inv.soldPrice, currency) : '—'}</td>
+                          <td style={{ padding: '10px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace', fontWeight: 700 }}>{formatCurrencySigned(realPnl, currency)}</td>
+                          <td style={{ padding: '10px', textAlign: 'right', color: pnlCol, fontFamily: 'monospace' }}>{realPnl >= 0 ? '+' : ''}{realPnlPct.toFixed(2)}%</td>
+                          <td style={{ padding: '10px', color: '#64748B', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                             {inv.soldDate ? formatDate(inv.soldDate, dateFormat) : '—'}
                           </td>
-                          <td style={{ padding: '12px' }}>
+                          <td style={{ padding: '10px' }}>
                             <div style={{ display: 'flex', gap: 4 }}>
                               <button onClick={() => handleReopen(inv.id)}
                                       style={{ padding: '4px 10px', borderRadius: 5, border: 'none', backgroundColor: '#10B98120', color: '#10B981', fontSize: 11, cursor: 'pointer' }}>

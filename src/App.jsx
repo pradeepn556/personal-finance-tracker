@@ -210,7 +210,8 @@ export default function App() {
           gap: '8px',
         }}>
           <span style={{ fontSize: '13px', color: '#93C5FD' }}>
-            📊 <strong>Demo Mode</strong> — You're viewing sample data. Clear it in{' '}
+            <span style={{ display: 'inline-block', backgroundColor: '#06B6D4', color: '#0F172A', fontSize: '10px', fontWeight: 800, padding: '1px 6px', borderRadius: '4px', marginRight: '6px', verticalAlign: 'middle', letterSpacing: '0.05em' }}>DEMO</span>
+            <strong>Demo Mode</strong> — You're viewing sample data. Clear it in{' '}
             <button
               onClick={() => setActiveTab('settings')}
               style={{ color: '#06B6D4', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', padding: 0 }}
