@@ -1,19 +1,35 @@
 // ============================================================
 // utils/priceFetcher.js
 // Live market price fetching:
-//   • Stocks / ETFs / Bonds → Yahoo Finance (tries SYMBOL.AX first
-//     for Australian context, then plain SYMBOL, then SYMBOL-USD)
-//   • Crypto               → CoinGecko (free, no key needed) with
-//                            Yahoo Finance as fallback
-// Prices are persisted in localStorage so the last-fetched values
-// survive a page refresh, and the Holdings header shows when they
-// were last updated.
+//   • Crypto                → CoinGecko (free, no key, CORS-friendly)
+//                             with Yahoo Finance as fallback
+//   • Stocks / ETFs / Bonds → Finnhub (free API key, CORS-friendly,
+//                             60 calls/min) with Yahoo Finance fallback
+//
+// WHY Finnhub for stocks?
+//   Yahoo Finance's unofficial API does NOT include the CORS headers
+//   that browsers require (Access-Control-Allow-Origin). This means
+//   every browser-side fetch to Yahoo Finance is silently blocked.
+//   Finnhub includes proper CORS headers and works from any browser.
+//
+// SETUP:
+//   1. Get a free Finnhub API key at https://finnhub.io/register
+//      (30 seconds, no credit card — free tier: 60 calls/min)
+//   2. Paste the key in Settings → Live Prices
+//   3. Crypto prices work automatically via CoinGecko (no key needed)
+//
+// SYMBOL FORMAT:
+//   ASX stocks  → ANZ.AX, WOW.AX, WTC.AX, CBA.AX  (try .AX suffix first)
+//   US stocks   → AAPL, TSLA, MSFT, NVDA
+//   ETFs        → VGS.AX, A200.AX, NDQ.AX, SPY
+//   Crypto      → BTC, ETH, SOL, ADA, DOGE (any from COINGECKO_IDS list)
 // ============================================================
 
-const STATUS_KEY   = 'priceStatus';      // per-symbol { status, source, updatedAt }
-const REFRESH_KEY  = 'lastPriceRefresh'; // ISO timestamp of last batch refresh
-const CACHE_TTL_MS = 15 * 60 * 1000;    // 15 min — stale threshold for manual refresh badge
-const AUTO_TTL_MS  = 60 * 60 * 1000;    // 1 hour  — threshold for auto-refresh on page load
+const STATUS_KEY      = 'priceStatus';      // per-symbol { status, source, updatedAt }
+const REFRESH_KEY     = 'lastPriceRefresh'; // ISO timestamp of last batch refresh
+const FINNHUB_KEY_KEY = 'finnhubApiKey';    // user's Finnhub API key (optional but recommended)
+const CACHE_TTL_MS    = 15 * 60 * 1000;    // 15 min — stale threshold for manual refresh badge
+const AUTO_TTL_MS     = 60 * 60 * 1000;    // 1 hour  — threshold for auto-refresh on page load
 
 // ── CoinGecko coin ID mapping ───────────────────────────────
 // Maps common uppercase ticker → CoinGecko coin ID.
@@ -41,7 +57,16 @@ export const COINGECKO_IDS = {
   RENDER:'render-token',         FET:   'fetch-ai',
 };
 
-// ── localStorage helpers ────────────────────────────────────
+// ── Finnhub API key helpers ──────────────────────────────────
+export function loadFinnhubKey() {
+  return localStorage.getItem(FINNHUB_KEY_KEY) || '';
+}
+
+export function saveFinnhubKey(key) {
+  try { localStorage.setItem(FINNHUB_KEY_KEY, (key || '').trim()); } catch { /* quota */ }
+}
+
+// ── Price status helpers ─────────────────────────────────────
 export function loadPriceStatus() {
   try { return JSON.parse(localStorage.getItem(STATUS_KEY) || '{}'); }
   catch { return {}; }
@@ -67,7 +92,41 @@ export function isPriceStale(lastRefreshISO, ttlMs = CACHE_TTL_MS) {
 
 export { AUTO_TTL_MS };
 
-// ── Yahoo Finance ───────────────────────────────────────────
+// ── Finnhub ──────────────────────────────────────────────────
+// CORS-enabled, free tier: 60 calls/min, no daily limit.
+// Returns { price, fetchedAs } or null.
+//
+// Symbol format for ASX stocks:
+//   Finnhub accepts Yahoo Finance-style tickers: ANZ.AX, WOW.AX, WTC.AX
+//   For US stocks: AAPL, TSLA, MSFT (no suffix needed)
+export async function fetchFinnhubPrice(rawSymbol, apiKey) {
+  if (!apiKey) return null;
+  const sym = rawSymbol.trim().toUpperCase();
+
+  // Try candidates: SYMBOL.AX first for Australian context, then plain SYMBOL
+  const isAXSymbol = sym.endsWith('.AX');
+  const candidates = isAXSymbol ? [sym] : [`${sym}.AX`, sym];
+
+  for (const candidate of candidates) {
+    try {
+      const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(candidate)}&token=${apiKey}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) continue;
+      const json  = await res.json();
+      const price = json?.c;   // 'c' = current price in Finnhub quote response
+      if (price && price > 0) return { price, fetchedAs: candidate };
+    } catch { /* try next candidate */ }
+  }
+  return null;
+}
+
+// ── Yahoo Finance ─────────────────────────────────────────────
+// NOTE: Yahoo Finance does NOT send CORS headers (Access-Control-Allow-Origin).
+// Browser fetch calls are blocked by CORS policy on most deployments.
+// This function is kept as a fallback for environments that work around CORS
+// (e.g., some native browser contexts, dev environments with proxy).
+// For reliable stock prices, use Finnhub (above) with an API key.
+//
 // Tries candidates in order: SYMBOL.AX → SYMBOL → SYMBOL-USD
 // Returns { price, fetchedAs } or null.
 export async function fetchYahooPrice(rawSymbol) {
@@ -90,7 +149,7 @@ export async function fetchYahooPrice(rawSymbol) {
   return null;
 }
 
-// ── CoinGecko ───────────────────────────────────────────────
+// ── CoinGecko ────────────────────────────────────────────────
 // Free public API — no key required, CORS-friendly.
 // Returns { price } or null.
 export async function fetchCoinGeckoPrice(rawSymbol, currency = 'AUD') {
@@ -109,24 +168,48 @@ export async function fetchCoinGeckoPrice(rawSymbol, currency = 'AUD') {
   } catch { return null; }
 }
 
-// ── Main entry ──────────────────────────────────────────────
-// Returns { price: number, source: string } | null
-// • Crypto → CoinGecko first, Yahoo fallback
-// • Others → Yahoo Finance (ASX .AX tried first)
+// ── Main entry ───────────────────────────────────────────────
+// Returns { price: number, source: string, fetchedAs?: string } | null
+//
+// Priority:
+//   Crypto  → CoinGecko → Yahoo Finance fallback
+//   Stocks  → Finnhub (if key set) → Yahoo Finance fallback
+//
+// If no Finnhub key is configured AND Yahoo Finance is CORS-blocked,
+// stocks will fail to fetch. Go to Settings → Live Prices to add your
+// free Finnhub API key.
 export async function fetchLivePrice(symbol, type, currency = 'AUD') {
-  const sym = symbol.trim().toUpperCase();
+  const sym        = symbol.trim().toUpperCase();
+  const finnhubKey = loadFinnhubKey();
 
   if (type === 'Crypto') {
+    // CoinGecko: CORS-friendly, no key needed — primary source for crypto
     const cg = await fetchCoinGeckoPrice(sym, currency);
     if (cg) return { price: cg.price, source: 'CoinGecko' };
-    // Fallback: Yahoo handles BTC-USD, ETH-USD etc.
+
+    // Yahoo Finance fallback for crypto (BTC-USD, ETH-USD etc.)
     const yf = await fetchYahooPrice(sym);
-    if (yf) return { price: yf.price, source: 'Yahoo Finance' };
+    if (yf) return { price: yf.price, source: 'Yahoo Finance', fetchedAs: yf.fetchedAs };
+
+    // Finnhub fallback for crypto (in case CoinGecko and Yahoo both fail)
+    if (finnhubKey) {
+      const fh = await fetchFinnhubPrice(sym, finnhubKey);
+      if (fh) return { price: fh.price, source: 'Finnhub', fetchedAs: fh.fetchedAs };
+    }
     return null;
   }
 
   // Stocks, ETFs, Bonds, Mutual Funds, Other
+  // 1. Finnhub (CORS-enabled) — primary source when API key is configured
+  if (finnhubKey) {
+    const fh = await fetchFinnhubPrice(sym, finnhubKey);
+    if (fh) return { price: fh.price, source: 'Finnhub', fetchedAs: fh.fetchedAs };
+  }
+
+  // 2. Yahoo Finance fallback (CORS-blocked on most browser deployments,
+  //    but may work in some local/dev environments)
   const yf = await fetchYahooPrice(sym);
   if (yf) return { price: yf.price, source: 'Yahoo Finance', fetchedAs: yf.fetchedAs };
+
   return null;
 }

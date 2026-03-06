@@ -24,6 +24,7 @@ import { formatDate, todayISO } from '../../utils/dateHelpers';
 import {
   fetchLivePrice, loadPriceStatus, savePriceStatus,
   loadLastRefresh, saveLastRefresh, isPriceStale, AUTO_TTL_MS,
+  loadFinnhubKey,
 } from '../../utils/priceFetcher';
 
 // ── Constants ──────────────────────────────────────────────
@@ -418,7 +419,11 @@ export default function Investments({ data, setInvestments }) {
       commitInvestment(result.price);
       showToast(`${sym} added · ${result.source}: ${formatCurrency(result.price, currency)} ✓`);
     } else {
-      setFormPriceError(`Couldn't auto-fetch price for "${sym}" — enter it manually below.`);
+      const hasKey = !!loadFinnhubKey();
+      const hint   = hasKey
+        ? ''
+        : ' For stocks & ETFs, add a free Finnhub key in Settings → Live Prices.';
+      setFormPriceError(`Couldn't auto-fetch price for "${sym}".${hint} Enter it manually below.`);
       setPriceMode('manual');
     }
   }
@@ -760,6 +765,12 @@ export default function Investments({ data, setInvestments }) {
             <p style={{ color: '#475569', fontSize: 11, margin: '2px 0 0' }}>Click a row to view individual tranches</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {!loadFinnhubKey() && !lastRefresh && (
+              <span style={{ color: '#F59E0B', fontSize: 11, whiteSpace: 'nowrap' }}
+                    title="Add a free Finnhub API key in Settings → Live Prices to enable stock prices">
+                ⚠ Add Finnhub key in Settings
+              </span>
+            )}
             {lastRefresh && (
               <span style={{ color: '#475569', fontSize: 11, whiteSpace: 'nowrap' }}>
                 📡 {timeAgo(lastRefresh)}
@@ -768,7 +779,9 @@ export default function Investments({ data, setInvestments }) {
             <button
               onClick={refreshPrices}
               disabled={fetchingPrices || investments.filter(i => !i.isClosed).length === 0}
-              title="Fetch live prices: Yahoo Finance (stocks, ASX .AX first) · CoinGecko (crypto)"
+              title={loadFinnhubKey()
+                ? 'Fetch live prices: Finnhub (stocks/ETFs) · CoinGecko (crypto)'
+                : 'Crypto prices via CoinGecko · For stocks, add a free Finnhub key in Settings → Live Prices'}
               style={{
                 display: 'flex', alignItems: 'center', gap: 5,
                 height: 30, padding: '0 12px',

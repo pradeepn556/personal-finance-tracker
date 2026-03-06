@@ -6,10 +6,11 @@
 // ============================================================
 
 import { useState, useRef } from 'react';
-import { Download, Upload, Trash2, AlertCircle, CheckCircle, Database, Globe } from 'lucide-react';
+import { Download, Upload, Trash2, AlertCircle, CheckCircle, Database, Globe, Key, Eye, EyeOff } from 'lucide-react';
 
 import { STORAGE_KEYS, saveAllData, clearAllData, getStorageSize } from '../../utils/storage';
 import { formatCurrency } from '../../utils/formatters';
+import { loadFinnhubKey, saveFinnhubKey } from '../../utils/priceFetcher';
 
 // ── Constants ──────────────────────────────────────────────
 const CURRENCIES = [
@@ -74,6 +75,11 @@ export default function SettingsTab({ data, setSettings, setData }) {
   const [importError, setImportError] = useState('');
   const fileInputRef = useRef(null);
 
+  // ── Finnhub API key state ───────────────────────────────
+  const [finnhubInput,   setFinnhubInput]   = useState(loadFinnhubKey);
+  const [showFinnhubKey, setShowFinnhubKey] = useState(false);
+  const [finnhubSaved,   setFinnhubSaved]   = useState(!!loadFinnhubKey());
+
   const showToast = (msg, type = 'success') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast({ message: '', type: 'success' }), 3500);
@@ -82,6 +88,19 @@ export default function SettingsTab({ data, setSettings, setData }) {
   function updateSetting(key, value) {
     const updated = { ...(settings || {}), [key]: value };
     setSettings(updated);
+  }
+
+  function handleSaveFinnhubKey() {
+    saveFinnhubKey(finnhubInput);
+    setFinnhubSaved(!!finnhubInput.trim());
+    showToast(finnhubInput.trim() ? 'Finnhub API key saved ✓' : 'Finnhub API key cleared');
+  }
+
+  function handleClearFinnhubKey() {
+    setFinnhubInput('');
+    saveFinnhubKey('');
+    setFinnhubSaved(false);
+    showToast('Finnhub API key cleared');
   }
 
   // ── Storage stats ──────────────────────────────────────
@@ -219,6 +238,117 @@ export default function SettingsTab({ data, setSettings, setData }) {
           </div>
           <div style={{ width: 40, height: 22, borderRadius: 12, backgroundColor: '#06B6D4', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 3px' }}>
             <div style={{ width: 16, height: 16, borderRadius: '50%', backgroundColor: '#fff' }} />
+          </div>
+        </div>
+      </Section>
+
+      {/* ── Live Prices / API Keys ────────────────────────── */}
+      <Section emoji="📡" title="LIVE PRICES" subtitle="Configure market data source for real-time investment prices">
+
+        {/* How it works */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, backgroundColor: '#0F172A', border: '1px solid #334155' }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>🪙</span>
+            <div>
+              <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>Crypto prices — CoinGecko</p>
+              <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
+                Free, no key needed. Works out of the box for BTC, ETH, SOL, ADA, and 40+ coins.
+                Just enter the ticker symbol (e.g. <code style={{ color: '#06B6D4' }}>BTC</code>, <code style={{ color: '#06B6D4' }}>ETH</code>).
+              </p>
+            </div>
+            <span style={{ marginLeft: 'auto', color: '#10B981', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>✓ Active</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, backgroundColor: '#0F172A', border: `1px solid ${finnhubSaved ? '#10B98140' : '#334155'}` }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>📈</span>
+            <div>
+              <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>Stocks & ETFs — Finnhub</p>
+              <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
+                Free API key required (60 calls/min, no daily limit).
+                Supports ASX (<code style={{ color: '#06B6D4' }}>ANZ.AX</code>, <code style={{ color: '#06B6D4' }}>WOW.AX</code>),
+                US stocks (<code style={{ color: '#06B6D4' }}>AAPL</code>, <code style={{ color: '#06B6D4' }}>MSFT</code>), ETFs and more.
+              </p>
+            </div>
+            <span style={{ marginLeft: 'auto', color: finnhubSaved ? '#10B981' : '#F59E0B', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+              {finnhubSaved ? '✓ Active' : '⚠ Key needed'}
+            </span>
+          </div>
+        </div>
+
+        {/* Finnhub API key input */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+            <label style={LABEL}>Finnhub API Key</label>
+            <a href="https://finnhub.io/register" target="_blank" rel="noreferrer"
+               style={{ color: '#06B6D4', fontSize: 12, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Key size={11} /> Get free key at finnhub.io →
+            </a>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <input
+                type={showFinnhubKey ? 'text' : 'password'}
+                value={finnhubInput}
+                onChange={e => setFinnhubInput(e.target.value)}
+                placeholder="Paste your Finnhub API key here…"
+                style={{ ...INPUT, paddingRight: 40 }}
+                onKeyDown={e => e.key === 'Enter' && handleSaveFinnhubKey()}
+              />
+              <button
+                onClick={() => setShowFinnhubKey(v => !v)}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#64748B' }}
+                title={showFinnhubKey ? 'Hide key' : 'Show key'}>
+                {showFinnhubKey ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+            <button onClick={handleSaveFinnhubKey}
+                    style={{ height: 42, padding: '0 18px', backgroundColor: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              Save Key
+            </button>
+            {finnhubSaved && (
+              <button onClick={handleClearFinnhubKey}
+                      style={{ height: 42, padding: '0 14px', backgroundColor: 'transparent', color: '#EF4444', border: '1px solid #EF444440', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Status indicator */}
+          {finnhubSaved && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#10B981' }} />
+              <p style={{ color: '#10B981', fontSize: 12, margin: 0, fontWeight: 600 }}>
+                API key saved — stock & ETF prices now enabled
+              </p>
+            </div>
+          )}
+          {!finnhubSaved && (
+            <div style={{ marginTop: 8 }}>
+              <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
+                💡 <strong style={{ color: '#94A3B8' }}>How to get a free key:</strong>{' '}
+                Visit <a href="https://finnhub.io/register" target="_blank" rel="noreferrer" style={{ color: '#06B6D4' }}>finnhub.io/register</a>,
+                sign up (no credit card), copy your API key from the dashboard, and paste it above.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Symbol format guide */}
+        <div style={{ marginTop: 16, borderTop: '1px solid #334155', paddingTop: 16 }}>
+          <p style={{ color: '#CBD5E1', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Symbol Format Guide</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4" style={{ gap: 8 }}>
+            {[
+              { label: 'ASX Stocks', examples: ['ANZ.AX', 'WOW.AX', 'WTC.AX', 'CBA.AX'], colour: '#06B6D4' },
+              { label: 'US Stocks',  examples: ['AAPL', 'TSLA', 'MSFT', 'NVDA'],          colour: '#10B981' },
+              { label: 'ETFs',       examples: ['VGS.AX', 'A200.AX', 'NDQ.AX', 'SPY'],   colour: '#F59E0B' },
+              { label: 'Crypto',     examples: ['BTC', 'ETH', 'SOL', 'ADA'],              colour: '#8B5CF6' },
+            ].map(({ label, examples, colour }) => (
+              <div key={label} style={{ padding: '10px 12px', borderRadius: 8, backgroundColor: '#0F172A', border: `1px solid ${colour}20` }}>
+                <p style={{ color: colour, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', margin: '0 0 6px', letterSpacing: '0.06em' }}>{label}</p>
+                {examples.map(ex => (
+                  <p key={ex} style={{ color: '#94A3B8', fontSize: 12, margin: '2px 0', fontFamily: 'monospace' }}>{ex}</p>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       </Section>
