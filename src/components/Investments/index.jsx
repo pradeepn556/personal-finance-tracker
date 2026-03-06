@@ -420,9 +420,13 @@ export default function Investments({ data, setInvestments }) {
       showToast(`${sym} added · ${result.source}: ${formatCurrency(result.price, currency)} ✓`);
     } else {
       const hasKey = !!loadFinnhubKey();
-      const hint   = hasKey
-        ? ''
-        : ' For stocks & ETFs, add a free Finnhub key in Settings → Live Prices.';
+      // Give specific hints based on what failed
+      let hint = '';
+      if (!hasKey) {
+        hint = ' Add a free Finnhub key in Settings → Live Prices to enable stock prices.';
+      } else if (!sym.endsWith('.AX') && (form.type === 'Stock' || form.type === 'ETF' || form.type === 'Bond')) {
+        hint = ` For ASX stocks, try adding .AX suffix (e.g. ${sym}.AX).`;
+      }
       setFormPriceError(`Couldn't auto-fetch price for "${sym}".${hint} Enter it manually below.`);
       setPriceMode('manual');
     }
@@ -678,9 +682,15 @@ export default function Investments({ data, setInvestments }) {
                   </select>
                 </Field>
                 <Field label="Symbol / Name" required error={errors.symbol}>
-                  <input type="text" placeholder="e.g. AAPL, BTC"
+                  <input type="text" placeholder="BHP.AX · ANZ.AX · AAPL · BTC"
                          value={form.symbol} style={INPUT}
                          onChange={e => setForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))} />
+                  {form.type && form.type !== 'Crypto' && (
+                    <p style={{ fontSize: 11, color: '#64748B', marginTop: 4 }}>
+                      💡 ASX stocks: add <strong style={{ color: '#06B6D4' }}>.AX</strong> suffix (e.g. <strong style={{ color: '#94A3B8' }}>BHP.AX</strong>, <strong style={{ color: '#94A3B8' }}>ANZ.AX</strong>).
+                      US stocks: enter ticker only (<strong style={{ color: '#94A3B8' }}>AAPL</strong>).
+                    </p>
+                  )}
                 </Field>
                 <Field label="Quantity" required error={errors.quantity}>
                   <input type="number" min="0" step="0.0001" placeholder="0"

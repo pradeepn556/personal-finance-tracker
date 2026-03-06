@@ -30,10 +30,18 @@ export default function App() {
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [data,      setData]      = useState(() => loadAllData());
 
-  const updateData = useCallback((key, newValue) => {
+  const updateData = useCallback((key, newValueOrFn) => {
     const storageKey = STORAGE_KEYS[key.toUpperCase()];
-    if (storageKey) saveData(storageKey, newValue);
-    setData(prev => ({ ...prev, [key]: newValue }));
+    // Support both plain values AND functional updaters (prev => newValue).
+    // Without this, calling setInvestments(prev => prev.map(...)) would pass the
+    // function itself to saveData() which JSON-stringifies to undefined, wiping
+    // localStorage and crashing React when it tries .filter() on a function.
+    setData(prev => {
+      const current  = prev[key];
+      const newValue = typeof newValueOrFn === 'function' ? newValueOrFn(current) : newValueOrFn;
+      if (storageKey) saveData(storageKey, newValue);
+      return { ...prev, [key]: newValue };
+    });
   }, []);
 
   const setIncome      = useCallback(v => updateData('income',      v), [updateData]);

@@ -96,16 +96,37 @@ export { AUTO_TTL_MS };
 // CORS-enabled, free tier: 60 calls/min, no daily limit.
 // Returns { price, fetchedAs } or null.
 //
-// Symbol format for ASX stocks:
-//   Finnhub accepts Yahoo Finance-style tickers: ANZ.AX, WOW.AX, WTC.AX
-//   For US stocks: AAPL, TSLA, MSFT (no suffix needed)
-export async function fetchFinnhubPrice(rawSymbol, apiKey) {
+// Symbol format:
+//   ASX stocks → ANZ.AX, WOW.AX, WTC.AX, BHP.AX   (always use .AX suffix)
+//   US stocks  → AAPL, TSLA, MSFT                  (no suffix)
+//   ETFs       → VGS.AX, A200.AX, NDQ.AX, SPY
+//
+// IMPORTANT — currency mismatch prevention:
+//   For AUD portfolios, if the user enters "BHP" (no exchange suffix),
+//   we ONLY try "BHP.AX" (ASX). We do NOT fall back to plain "BHP",
+//   which would return NYSE price in USD (e.g. $75 USD shown as AUD).
+//   If .AX fails, the user should add the .AX suffix explicitly.
+//
+//   For non-AUD portfolios (or when user explicitly enters .AX / plain),
+//   we try both variants to support international stocks.
+export async function fetchFinnhubPrice(rawSymbol, apiKey, currency = 'AUD') {
   if (!apiKey) return null;
   const sym = rawSymbol.trim().toUpperCase();
-
-  // Try candidates: SYMBOL.AX first for Australian context, then plain SYMBOL
   const isAXSymbol = sym.endsWith('.AX');
-  const candidates = isAXSymbol ? [sym] : [`${sym}.AX`, sym];
+
+  let candidates;
+  if (isAXSymbol) {
+    // User explicitly specified ASX exchange — only try that
+    candidates = [sym];
+  } else if (currency === 'AUD') {
+    // AUD portfolio: only try .AX suffix.
+    // Falling back to plain SYMBOL would give a non-ASX price in a foreign
+    // currency (e.g. NYSE at USD) which would be shown incorrectly as AUD.
+    candidates = [`${sym}.AX`];
+  } else {
+    // Non-AUD portfolios: try both (supports US stocks / other exchanges)
+    candidates = [`${sym}.AX`, sym];
+  }
 
   for (const candidate of candidates) {
     try {
@@ -193,7 +214,7 @@ export async function fetchLivePrice(symbol, type, currency = 'AUD') {
 
     // Finnhub fallback for crypto (in case CoinGecko and Yahoo both fail)
     if (finnhubKey) {
-      const fh = await fetchFinnhubPrice(sym, finnhubKey);
+      const fh = await fetchFinnhubPrice(sym, finnhubKey, currency);
       if (fh) return { price: fh.price, source: 'Finnhub', fetchedAs: fh.fetchedAs };
     }
     return null;
@@ -201,8 +222,9 @@ export async function fetchLivePrice(symbol, type, currency = 'AUD') {
 
   // Stocks, ETFs, Bonds, Mutual Funds, Other
   // 1. Finnhub (CORS-enabled) — primary source when API key is configured
+  //    currency is passed so Finnhub avoids wrong-exchange fallbacks for AUD portfolios
   if (finnhubKey) {
-    const fh = await fetchFinnhubPrice(sym, finnhubKey);
+    const fh = await fetchFinnhubPrice(sym, finnhubKey, currency);
     if (fh) return { price: fh.price, source: 'Finnhub', fetchedAs: fh.fetchedAs };
   }
 

@@ -263,9 +263,11 @@ export default function SettingsTab({ data, setSettings, setData }) {
             <div>
               <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>Stocks & ETFs — Finnhub</p>
               <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
-                Free API key required (60 calls/min, no daily limit).
-                Supports ASX (<code style={{ color: '#06B6D4' }}>ANZ.AX</code>, <code style={{ color: '#06B6D4' }}>WOW.AX</code>),
-                US stocks (<code style={{ color: '#06B6D4' }}>AAPL</code>, <code style={{ color: '#06B6D4' }}>MSFT</code>), ETFs and more.
+                Free API key required (60 calls/min, no daily limit).{' '}
+                <strong style={{ color: '#F59E0B' }}>Always use the exchange suffix for ASX stocks:</strong>{' '}
+                <code style={{ color: '#06B6D4' }}>BHP.AX</code>, <code style={{ color: '#06B6D4' }}>ANZ.AX</code>, <code style={{ color: '#06B6D4' }}>WOW.AX</code>.{' '}
+                US stocks need no suffix: <code style={{ color: '#06B6D4' }}>AAPL</code>, <code style={{ color: '#06B6D4' }}>MSFT</code>.{' '}
+                <em style={{ color: '#475569' }}>Without .AX, the app may fetch a different exchange's price in USD.</em>
               </p>
             </div>
             <span style={{ marginLeft: 'auto', color: finnhubSaved ? '#10B981' : '#F59E0B', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
