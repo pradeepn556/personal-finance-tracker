@@ -8,7 +8,7 @@ My partner and I had a system that worked — technically. Two separate spreadsh
 
 Every number in those spreadsheets was entered by hand. Every month, we'd sit down, go through bank statements transaction by transaction, type figures in, build our own formulas to calculate portfolio P&L, and try to piece together a picture of where we actually stood financially. It wasn't broken. But it was slow, error-prone, and — honestly — the kind of friction that makes you put it off until you're two months behind.
 
-The investment side was the worst of it. We hold both ASX stocks and some US positions, plus a small crypto allocation. Tracking live prices meant manually looking them up and updating cells. Tracking a partial sell — where you close half a position but hold the rest — required careful formula gymnastics to keep the cost basis right. One mistake and the P&L numbers were silently wrong until you noticed something didn't add up.
+The investment side was the worst of it. We hold both ASX stocks and some US positions, plus other investments. Tracking live prices meant manually looking them up and updating cells. Tracking a partial sell — where you close half a position but hold the rest — required careful formula gymnastics to keep the cost basis right. One mistake and the P&L numbers were silently wrong until you noticed something didn't add up.
 
 At some point the conversation shifted from "let's fix the spreadsheets" to "why are we doing this manually at all?"
 
