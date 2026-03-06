@@ -1,130 +1,87 @@
-# 💰 Personal Finance Tracker
+# Personal Finance Tracker
 
-A professional-grade personal finance management app built with React — track income, investments, and expenses with live market prices, portfolio analytics, and beautiful dark-mode visualisations.
+**A production-quality personal finance management application** — designed, specified, and product-managed by me (Pradeep N, BA / Product Specialist), built through structured PRD-driven development using Claude Code.
 
-> **Built as a portfolio project demonstrating AI-augmented product development.**
-> Requirements & product design by Pradeep N · Implementation via [Claude Code](https://claude.ai/code)
-
----
-
-## 🌐 Live Demo
-
-> Deployment to GitHub Pages coming soon
+This project demonstrates my ability to translate complex personal finance requirements into a fully functional, professionally designed web application — including detailed product specifications, iterative UAT cycles, edge case identification, and pixel-perfect design direction.
 
 ---
 
-## ✨ Feature Overview
+## Product Overview
 
-### 📊 Dashboard
-- **Net Worth** summary card with real-time total
-- **Monthly Cash Flow** — income vs expenses bar chart
-- **Financial Health** — savings rate, expense ratio, investment rate gauges
-- **Net Worth Trend** — line chart over time
-- **Recent Transactions** — unified feed across all categories
+A full-featured finance dashboard covering five core domains — each with its own data model, analytics, and UX flow designed from scratch.
 
-### 💵 Income
-- Log income entries with source, recipient, and category
-- Income sources: Main Job · Side Hustle · Partner · Other
-- Recipient tagging: Me · Partner · Shared
-- Monthly trend charts, income breakdown pie chart
-- Filter + searchable professional table with inline edit/delete
-
-### 📈 Investments *(most feature-rich tab)*
-- **Live price fetching** — automatic on load, manual refresh button
-  - 🟢 Crypto → CoinGecko (free, no key, always works)
-  - 📡 Stocks / ETFs → Finnhub (free API key, CORS-enabled, 60 calls/min)
-- **ASX + US stock support** — add both in the same portfolio:
-  - ASX stocks: `BHP.AX`, `ANZ.AX`, `WOW.AX` → price in AUD
-  - NASDAQ/NYSE stocks: `IREN`, `AAPL`, `TSLA` → price in USD (flagged with amber **USD** badge)
-- **Holdings table** — grouped by symbol, shows live/manual price status indicator
-- **Tranches modal** — click any holding to see individual buy lots with full P&L breakdown
-  - Edit, Delete, or **Close Units** per tranche
-  - Partial close: sell X of N units — creates a closed record and reduces original qty
-- **Closed Positions** — toggle section showing realised P&L for sold positions
-- **Portfolio Heatmap** — tiles sized by portfolio weight, coloured by P&L %
-- **Asset Allocation** pie chart + **Performance P&L %** bar chart
-- Collapsible add-investment form with auto-fetch or manual price entry
-
-### 💳 Expenses
-- Log expenses with category, amount, and date
-- **Budget Management** — set monthly budgets per category
-- Budget progress bars with overspend alerts
-- Spending by category, monthly trend, weekday pattern charts
-- Filter, sort, and search expense table
-
-### ⚙️ Settings
-- **Live Prices** — enter your free Finnhub API key to enable stock price fetching
-  - Shows connection status for CoinGecko (auto) and Finnhub (key required)
-  - Symbol format guide built in
-- **Display Preferences** — currency, date format
-- **Data & Backup** — export as JSON or CSV, import from JSON
-- **Clear All Data** — full reset with confirmation
+| Module | What it does |
+|---|---|
+| **Dashboard** | Unified net worth view, cash flow trend, financial health metrics, recent transaction feed |
+| **Income** | Multi-source income tracking (salary, side hustle, partner) with recipient tagging and monthly analytics |
+| **Investments** | Live-price portfolio tracking across ASX and US markets — holdings, tranches, P&L, heatmap, closed positions |
+| **Expenses** | Category-based expense logging with budget management, overspend alerts, and trend analysis |
+| **Settings** | Finnhub API key management, display preferences, JSON/CSV export-import |
 
 ---
 
-## 🛠 Tech Stack
+## Investment Module — Product Design Highlights
+
+The investments tab required the most complex product thinking. Key design decisions I specified:
+
+**Tranche-based portfolio model** — Every buy event is stored as a separate lot, enabling accurate cost basis calculation per purchase date and price. Users can view all lots for a symbol in a dedicated modal.
+
+**Partial position closing** — Rather than a binary open/closed state, I designed a flow where users can sell a portion of any lot. The system splits the record: a new closed entry is created for the sold quantity, and the original lot's quantity is reduced. Realised P&L is tracked separately from unrealised.
+
+**Dual-exchange live pricing** — The app supports both ASX-listed stocks (`.AX` suffix, AUD pricing) and US-listed stocks (plain ticker, USD pricing) in the same portfolio. I identified that Finnhub tries the ASX exchange first and falls back to NASDAQ/NYSE — and specified that the UI must surface a clear `USD` currency badge when a non-ASX price is returned, so users always know which currency they're looking at.
+
+**CORS-safe architecture** — I identified early that Yahoo Finance's unofficial API is blocked by browsers due to missing CORS headers. The final architecture uses CoinGecko (crypto, no key required) and Finnhub (stocks/ETFs, free API key, CORS-enabled) as primary sources — with Yahoo Finance retained as a non-CORS fallback for local/dev environments.
+
+---
+
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Framework | React 19 (Vite) |
-| Styling | Tailwind CSS v4 + inline styles |
+| Styling | Tailwind CSS v4 + design token system |
 | Charts | Recharts |
 | Icons | Lucide React |
-| Storage | Browser localStorage (no backend) |
-| Live Prices | [CoinGecko API](https://coingecko.com) · [Finnhub API](https://finnhub.io) |
-| Build | Vite 7 |
-| Hosting | GitHub Pages *(coming soon)* |
+| Storage | Browser localStorage — zero backend, fully private |
+| Live Prices | CoinGecko API (crypto) · Finnhub API (stocks/ETFs) |
 
 ---
 
-## 📡 Live Price Setup
-
-Crypto prices work **automatically** — no setup needed.
-
-For **stocks and ETFs**, get a free Finnhub API key:
-
-1. Go to [finnhub.io/register](https://finnhub.io/register) (30 seconds, no credit card)
-2. Copy your API key
-3. Open the app → **Settings** → **📡 Live Prices** → paste key → **Save**
-
-> Free tier: 60 API calls/minute · No daily limit
-
-### Supported Symbol Formats
-
-| Asset type | Format | Examples |
-|---|---|---|
-| ASX Stocks | `TICKER.AX` | `BHP.AX`, `ANZ.AX`, `WOW.AX`, `CBA.AX` |
-| NASDAQ / NYSE | Plain ticker | `IREN`, `AAPL`, `TSLA`, `MSFT` |
-| ASX ETFs | `TICKER.AX` | `VGS.AX`, `A200.AX`, `NDQ.AX` |
-| US ETFs | Plain ticker | `SPY`, `QQQ` |
-| Crypto | Plain ticker | `BTC`, `ETH`, `SOL`, `ADA`, `DOGE` |
-
-> ⚠️ US stock prices are fetched in **USD**. The app shows an amber `USD` badge on those rows in the Holdings table so you always know which currency the price is in.
-
----
-
-## 🗂 Project Structure
+## Project Structure
 
 ```
 src/
 ├── components/
 │   ├── Dashboard/       # Net worth, cash flow, financial health, transactions
-│   ├── Income/          # Income log, charts, filter table
-│   ├── Investments/     # Portfolio, tranches modal, heatmap, live prices
-│   ├── Expenses/        # Budget tracking, spending analysis, filter table
-│   └── Settings/        # Finnhub key, export/import, display prefs
+│   ├── Income/          # Income log, source/recipient tracking, analytics
+│   ├── Investments/     # Portfolio, tranches modal, live prices, heatmap
+│   ├── Expenses/        # Budget management, category analytics
+│   └── Settings/        # API key management, export/import, preferences
 ├── utils/
-│   ├── storage.js       # localStorage read/write, ID generation
-│   ├── calculations.js  # Net worth, P&L, budget, realised P&L formulas
-│   ├── priceFetcher.js  # Live price fetching (CoinGecko, Finnhub, Yahoo)
-│   ├── formatters.js    # Currency (AUD/USD), percentage formatting
-│   └── dateHelpers.js   # Date formatting, ISO helpers
+│   ├── storage.js       # localStorage abstraction, ID generation
+│   ├── calculations.js  # Net worth, unrealised/realised P&L, budget formulas
+│   ├── priceFetcher.js  # Live price routing (CoinGecko → Finnhub → Yahoo)
+│   ├── formatters.js    # Currency, percentage, number formatting
+│   └── dateHelpers.js   # Date parsing, formatting, ISO helpers
 └── App.jsx              # Tab navigation, global state, localStorage sync
 ```
 
 ---
 
-## 🚀 Run Locally
+## Development Approach
+
+**PRD-first** — Requirements were written as a detailed 35-page product specification before any code was written. The spec covered data models, UI layout per tab, edge cases, and acceptance criteria.
+
+**Iterative UAT** — Each tab went through structured user acceptance testing. Bugs were identified with screenshots and precise reproduction steps, then fixed with root cause analysis documented in commit messages. Notable bugs caught and resolved through UAT:
+- Data loss on live price refresh (React functional updater passed to non-functional state manager → `JSON.stringify(function)` = `undefined` stored in localStorage)
+- Wrong exchange pricing (Finnhub falling back to NYSE price in USD for ASX-listed stocks)
+- Screen blank on price fetch (same root cause as above — state set to a function reference)
+
+**Design direction** — Dark professional theme, consistent design tokens, collapsible forms, professional tables with alternating rows and hover states, animated transitions, responsive layout across mobile and desktop.
+
+---
+
+## Run Locally
 
 ```bash
 git clone https://github.com/pradeepn556/personal-finance-tracker.git
@@ -133,53 +90,32 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
-
-**Build for production:**
-```bash
-npm run build
-```
-
 ---
 
-## 🏗 Architecture Notes
-
-- **No backend** — all data lives in the browser's `localStorage`. Nothing leaves your device.
-- **Functional updater pattern** — state updates use `prev => newValue` to support both direct values and updater functions safely.
-- **CORS-safe fetching** — Yahoo Finance is CORS-blocked in browsers. The app uses CoinGecko (always works) and Finnhub (CORS-enabled with proper headers) instead.
-- **isASX flag** — Finnhub tries `SYMBOL.AX` first (ASX, AUD), then plain `SYMBOL` (NASDAQ/NYSE, USD). The `isASX` boolean flows through to the UI to display currency warnings.
-- **Investment tranches** — each buy event is a separate record. Partial sells create a new closed record and reduce the original lot's quantity.
-
----
-
-## 🤖 About This Project
-
-This project was built as part of developing AI-augmented product skills — where the human defines the product, and AI handles the implementation.
-
-| Role | Person / Tool |
-|---|---|
-| Product requirements & design | Pradeep N (BA / Product Specialist) |
-| Implementation | [Claude Code](https://claude.ai/code) by Anthropic |
-| Purpose | Portfolio project demonstrating AI-assisted development |
-
-> *"The future of product management is directing AI tools to build — not just writing specs for human developers."*
-
----
-
-## 📅 Development Log
+## Development Log
 
 | Date | Milestone |
 |---|---|
-| Mar 2026 | Project setup — Vite + React scaffold, GitHub repo |
-| Mar 2026 | All 5 tabs built: Dashboard, Income, Investments, Expenses, Settings |
+| Mar 2026 | Project setup — 35-page PRD written, Vite + React scaffold, GitHub repo |
+| Mar 2026 | All 5 tabs built to spec: Dashboard, Income, Investments, Expenses, Settings |
 | Mar 2026 | Full UI redesign — dark professional theme, collapsible forms, professional tables |
-| Mar 2026 | Investment tranches — per-lot tracking, partial close, closed positions |
-| Mar 2026 | Live price fetching — CoinGecko (crypto) + Finnhub (stocks/ETFs) |
-| Mar 2026 | ASX + US/NASDAQ stock support — automatic exchange detection with USD badge |
+| Mar 2026 | Investment tranches — per-lot tracking, partial close flow, closed positions with realised P&L |
+| Mar 2026 | Live price integration — CoinGecko (crypto) + Finnhub (stocks/ETFs), CORS architecture decision |
+| Mar 2026 | ASX + US/NASDAQ dual-market support — exchange detection, USD currency badge, error messaging |
 | Coming | GitHub Pages deployment |
 
 ---
 
-## 📄 Licence
+## About
 
-MIT — feel free to use this for your own learning.
+**Pradeep N** — BA / Product Specialist
+
+This project is part of my portfolio demonstrating AI-augmented product development — where I own the product vision, requirements, design direction, and UAT, while using Claude Code as my implementation engine.
+
+> *Directing AI to build is the next evolution of product management. This project is proof of concept.*
+
+---
+
+## Licence
+
+MIT
