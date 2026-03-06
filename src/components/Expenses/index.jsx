@@ -4,7 +4,7 @@
 //        (16th–15th), quick filters, filter defaults
 // ============================================================
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import {
   Trash2, Edit2, X, CheckCircle, AlertCircle,
-  ChevronDown, ChevronUp, Plus, ChevronLeft, ChevronRight,
+  ChevronDown, ChevronUp, Plus, ChevronLeft, ChevronRight, Upload,
 } from 'lucide-react';
 
 import { generateId } from '../../utils/storage';
@@ -76,6 +76,164 @@ const TODAY_ISO = todayISO();
 function filterPayCycle(entries) {
   const start = payCycleStart();
   return entries.filter(e => e.date >= start && e.date <= TODAY_ISO);
+}
+
+// ── Australian merchant auto-categorizer ───────────────────
+// Keywords are matched against the UPPERCASE bank description.
+// Add more entries as needed — first match wins.
+const MERCHANT_RULES = [
+  { kws: ['WOOLWORTHS', 'COLES ', 'ALDI ', 'IGA ', 'FOODWORKS', 'HARRIS FARM', 'COSTCO', 'DRAKES SUPER', 'SPUDSHED'],
+    cat: 'Groceries' },
+  { kws: ['HUNGRY JACK', 'MCDONALD', 'KFC ', 'DOMINOS', 'PIZZA HUT', 'PIZZA ', 'SUBWAY ', 'NANDOS', 'OPORTO',
+          'GRILL\'D', 'RESTAURANT', 'THAI ', 'SUSHI', 'RAMEN', 'BURRITO', 'KEBAB', 'TACO ', 'DINER ', 'BISTRO',
+          'BRASSERIE', 'FISHERMAN', 'FISH & CHIPS', 'FISH AND CHIPS', 'CHINESE FOOD', 'INDIAN FOOD', 'MEXICAN FOOD'],
+    cat: 'Dining & Takeaway' },
+  { kws: ['STARBUCKS', 'GLORIA JEAN', 'HUDSONS', 'COFFEE CLUB', 'COFFEE', 'CAFE ', 'BAKERY', 'ESPRESSO', 'BARISTA',
+          'DONUT', 'MUFFIN', 'CROISSANT', 'BRUNCH', 'PATISSERIE', 'BOULANGERIE'],
+    cat: 'Coffee & Drinks' },
+  { kws: ['NETFLIX', 'SPOTIFY', 'AMAZON PRIME', 'APPLE.COM', 'GOOGLE ONE', 'MICROSOFT 365', 'ADOBE ', 'DROPBOX',
+          'YOUTUBE PREMIUM', 'STAN ', 'BINGE ', 'PARAMOUNT', 'FOXTEL', 'KAYO ', 'DISNEY PLUS', 'DISNEY+',
+          'NINTENDO', 'PLAYSTATION', 'XBOX', 'STEAM ', 'AUDIBLE', 'CANVA', 'ZOOM ', 'CLAUDE.AI', 'CHATGPT',
+          'OPENAI', 'ANTHROPIC'],
+    cat: 'Subscriptions & Streaming' },
+  { kws: ['BP ', 'SHELL ', 'AMPOL', '7-ELEVEN', '7ELEVEN', 'CALTEX', 'UNITED PETROLEUM', 'PUMA ENERGY',
+          'LIBERTY OIL', 'METRO PETROLEUM', 'PETROL ', 'FUEL '],
+    cat: 'Fuel' },
+  { kws: ['UBER ', 'OLA CABS', 'DIDI ', '13CABS', 'YELLOW CAB', 'TAXI ', 'OPAL ', 'MYKI ', 'TRANSLINK',
+          'CITY RAIL', 'METRO TRAINS', 'LIME SCOOTER', 'NEURON', 'BIRD SCOOTER', 'TOLL ', 'LINKT', 'EASTLINK',
+          'CITYLINK', 'PARKING', 'WILSON PARKING', 'SECURE PARKING'],
+    cat: 'Transport' },
+  { kws: ['CHEMIST WAREHOUSE', 'PRICELINE', 'PHARMACY', 'CHEMIST ', 'MEDICAL', 'DOCTOR ', 'DENTAL ', 'DENTIST',
+          'PATHOLOGY', 'RADIOLOGY', 'OPTICAL', 'HOSPITAL', 'CLINIC ', 'SPECIALIST', 'PHYSIOTHERAPY', 'PHYSIO ',
+          'BULK BILLING', 'MEDICARE', 'HEALTHSCOPE', 'RAMSAY HEALTH', 'ST JOHN'],
+    cat: 'Health & Medical' },
+  { kws: ['GYM ', 'FITNESS', 'YOGA ', 'PILATES', 'ANYTIME FITNESS', 'GOODLIFE', 'JETTS ', 'F45 ', 'CROSSFIT',
+          'SWIM ', 'TENNIS', 'GOLF ', 'SPORT ', 'RECREATION'],
+    cat: 'Gym & Fitness' },
+  { kws: ['KMART', 'TARGET ', 'BIG W', 'MYER ', 'DAVID JONES', 'H&M ', 'ZARA ', 'COTTON ON', 'GLASSONS',
+          'SUPRE ', 'FOREVER NEW', 'UNIQLO', 'COUNTRY ROAD', 'WITCHERY', 'BONDS ', 'ATHLETES FOOT',
+          'REBEL SPORT', 'PLATYPUS', 'JUST JEANS'],
+    cat: 'Clothing & Apparel' },
+  { kws: ['BUNNINGS', 'IKEA ', 'SPOTLIGHT ', 'HOWARDS STORAGE', 'GARDEN ', 'HARDWARE', 'PLUMBER', 'ELECTRICIAN',
+          'PEST CONTROL', 'CARPET', 'CLEANING SERVICE'],
+    cat: 'Home & Garden' },
+  { kws: ['QANTAS', 'VIRGIN AUSTRALIA', 'JETSTAR', 'TIGERAIR', 'AIRBNB', 'BOOKING.COM', 'HOTELS.COM', 'MOTEL ',
+          'RESORT ', 'EXPEDIA', 'WOTIF', 'TRIVAGO', 'AGODA ', 'FLIGHT CENTRE', 'TRAVEL '],
+    cat: 'Travel & Holidays' },
+  { kws: ['JB HI-FI', 'HARVEY NORMAN', 'OFFICEWORKS', 'AMAZON AU', 'APPLE STORE', 'THE GOOD GUYS', 'BING LEE',
+          'DICK SMITH', 'JAYCAR'],
+    cat: 'Entertainment' },
+  { kws: ['AGL ', 'ORIGIN ENERGY', 'SIMPLY ENERGY', 'POWERSHOP', 'SYDNEY WATER', 'MELBOURNE WATER',
+          'WATER CORP', 'ENERGEX', 'AUSGRID', 'JEMENA ', 'CITIPOWER', 'AUSNET', 'MOMENTUM ENERGY',
+          'ALINTA ENERGY', 'ENERGY AUSTRALIA'],
+    cat: 'Utilities' },
+  { kws: ['TELSTRA', 'OPTUS ', 'VODAFONE', 'AMAYSIM', 'AUSSIE BROADBAND', 'LAUNTEL', 'IINET ', 'BELONG ',
+          'CATCH CONNECT', 'BOOST MOBILE', 'WOOLWORTHS MOBILE', 'INTERNODE'],
+    cat: 'Internet & Phone' },
+  { kws: ['RENT ', 'LEASE ', 'REAL ESTATE', 'LANDLORD', 'PROPERTY MANAGEMENT', 'RAY WHITE', 'LJ HOOKER',
+          'BARRY PLANT', 'NELSON ALEXANDER', 'RAINE & HORNE'],
+    cat: 'Rent / Mortgage' },
+  { kws: ['INSURANCE', 'IAG ', 'SUNCORP', 'ALLIANZ', 'NRMA ', 'RAA ', 'AAMI ', 'BUPA ', 'MEDIBANK',
+          'NIB ', 'HCF ', 'AHCQ', 'HBFL', 'BUDGET DIRECT', 'COLES INSURANCE'],
+    cat: 'Insurance' },
+  { kws: ['CREDIT CARD PAYMENT', 'VISA PAYMENT', 'MASTERCARD PAYMENT', 'CARD PAYMENT', 'AUTOPAY', 'BNPL',
+          'AFTERPAY', 'KLARNA', 'ZIP PAY', 'HUMM ', 'LATITUDE PAY'],
+    cat: 'Credit Card Payment' },
+];
+
+function autoCategorize(description) {
+  const upper = (description || '').toUpperCase();
+  for (const { kws, cat } of MERCHANT_RULES) {
+    if (kws.some(kw => upper.includes(kw))) return cat;
+  }
+  return 'Other';
+}
+
+// ── CSV parser ──────────────────────────────────────────────
+// Handle quoted CSV fields that may contain commas (e.g. "Woolworths, Bondi")
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '';
+  let inQ = false;
+  for (const ch of line) {
+    if (ch === '"') { inQ = !inQ; }
+    else if (ch === ',' && !inQ) { result.push(cur.trim().replace(/^"|"$/g, '')); cur = ''; }
+    else { cur += ch; }
+  }
+  result.push(cur.trim().replace(/^"|"$/g, ''));
+  return result;
+}
+
+// Australian banks export dates as DD/MM/YYYY — convert to YYYY-MM-DD for storage
+function parseAUDate(str) {
+  if (!str) return null;
+  const dmy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return str;
+  return null;
+}
+
+// Auto-detect which CSV columns are date / amount / description
+function detectColumns(headers) {
+  const h = headers.map(s => s.toLowerCase().trim());
+  const dateIdx = h.findIndex(c => c === 'date' || c.startsWith('date') || c.endsWith('date'));
+  const amtIdx  = h.findIndex(c => ['amount', 'debit', 'credit', 'transaction amount'].includes(c) || c.includes('amount'));
+  const descIdx = h.findIndex(c =>
+    ['description', 'narrative', 'particulars', 'detail', 'details', 'memo', 'text', 'transaction details'].includes(c) ||
+    c.includes('description') || c.includes('narrative') || c.includes('detail')
+  );
+  // Fallback description: first non-date, non-amount column that contains text
+  const descFallback = h.findIndex((_, i) => i !== dateIdx && i !== amtIdx && i > 0);
+  return { dateIdx, amtIdx, descIdx: descIdx !== -1 ? descIdx : descFallback };
+}
+
+// Full pipeline: CSV text → array of importable transactions
+function extractTransactionsFromCSV(text) {
+  if (!text?.trim()) return { rows: [], error: 'File is empty.' };
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
+  if (lines.length < 2) return { rows: [], error: 'File has no data rows.' };
+
+  const headers = parseCSVLine(lines[0]);
+  const { dateIdx, amtIdx, descIdx } = detectColumns(headers);
+
+  if (dateIdx === -1 || amtIdx === -1) {
+    return {
+      rows: [],
+      error: `Couldn't detect required columns. Found: "${headers.join('", "')}". ` +
+             `Expected columns named Date and Amount. Make sure you exported as CSV from your bank.`,
+    };
+  }
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = parseCSVLine(lines[i]);
+    if (parts.length < 2) continue;
+    const date   = parseAUDate(parts[dateIdx] || '');
+    if (!date) continue;
+    const rawAmt = parseFloat((parts[amtIdx] || '').replace(/[$,\s]/g, ''));
+    if (isNaN(rawAmt) || rawAmt === 0) continue;
+    if (rawAmt > 0) continue;  // skip credits (salary, refunds, transfers in)
+    const desc = descIdx !== -1 ? (parts[descIdx] || '').trim() : '';
+    rows.push({
+      _key:      `${date}-${rawAmt}-${i}`,
+      _selected: true,
+      _isDup:    false,
+      date,
+      amount:    Math.abs(rawAmt),
+      description: desc,
+      category:  autoCategorize(desc),
+    });
+  }
+
+  if (rows.length === 0) {
+    return {
+      rows: [],
+      error: 'No expense transactions found. This file may only contain income/credits, or the format is unsupported. ' +
+             'Make sure your CSV has negative amounts for expenses.',
+    };
+  }
+  return { rows, error: null };
 }
 
 // ── Tiny helpers ───────────────────────────────────────────
@@ -209,6 +367,209 @@ function SpendingCalendar({ expenses }) {
   );
 }
 
+// ── Bank Statement Import Modal ────────────────────────────
+// Full-screen modal: drop zone → preview table → import
+function ImportModal({ existing, onImport, onClose, currency }) {
+  const [rows,     setRows]     = useState([]);
+  const [error,    setError]    = useState('');
+  const [loading,  setLoading]  = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef(null);
+
+  // Check if this transaction already exists (same date + amount + description prefix)
+  function isDuplicate(row) {
+    return existing.some(e =>
+      e.date === row.date &&
+      Math.abs(Number(e.amount) - row.amount) < 0.02 &&
+      (e.description || '').toUpperCase().slice(0, 25) === row.description.toUpperCase().slice(0, 25)
+    );
+  }
+
+  function processFile(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['csv', 'txt'].includes(ext)) {
+      setError('Please upload a .csv file. Export your transactions from your bank → Download/Export → CSV format.');
+      return;
+    }
+    setLoading(true); setError('');
+    const reader = new FileReader();
+    reader.onload = ev => {
+      setLoading(false);
+      const { rows: parsed, error: parseErr } = extractTransactionsFromCSV(ev.target.result);
+      if (parseErr) { setError(parseErr); return; }
+      setRows(parsed.map(r => ({ ...r, _isDup: isDuplicate(r), _selected: !isDuplicate(r) })));
+    };
+    reader.onerror = () => { setLoading(false); setError('Could not read the file. Please try again.'); };
+    reader.readAsText(file);
+  }
+
+  const selectedRows  = rows.filter(r => r._selected);
+  const categorized   = rows.filter(r => r.category !== 'Other').length;
+  const dupCount      = rows.filter(r => r._isDup).length;
+  const nonDupRows    = rows.filter(r => !r._isDup);
+  const allNonDupSel  = nonDupRows.length > 0 && nonDupRows.every(r => r._selected);
+
+  function toggleRow(key) { setRows(prev => prev.map(r => r._key === key ? { ...r, _selected: !r._selected } : r)); }
+  function toggleAll()    { setRows(prev => prev.map(r => r._isDup ? r : { ...r, _selected: !allNonDupSel })); }
+  function updateCat(key, cat) { setRows(prev => prev.map(r => r._key === key ? { ...r, category: cat } : r)); }
+
+  function doImport() {
+    const toImport = selectedRows.map(r => ({
+      id: generateId('exp'),
+      date: r.date, category: r.category, amount: r.amount,
+      description: r.description, paymentMethod: 'Bank Import', notes: '',
+    }));
+    onImport(toImport);
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 100, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ backgroundColor: '#1A2332', border: '1px solid #334155', borderRadius: 12, width: '100%', maxWidth: 900, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #334155', flexShrink: 0 }}>
+          <div>
+            <h3 style={{ color: '#F1F5F9', fontSize: 16, fontWeight: 700, margin: 0 }}>📥 Import Bank Statement</h3>
+            <p style={{ color: '#64748B', fontSize: 12, margin: '2px 0 0' }}>Upload a CSV export from ANZ, CommBank, Westpac, NAB or any Australian bank</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4, borderRadius: 6 }}><X size={18} /></button>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+
+          {/* ── Drop zone (shown before file is loaded) ── */}
+          {rows.length === 0 && (
+            <div style={{ padding: 20 }}>
+              {/* How-to cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                {[
+                  { bank: 'ANZ Internet Banking', steps: 'Accounts → select account → Download Statement → choose date range → CSV' },
+                  { bank: 'CommBank NetBank',     steps: 'Accounts → Transaction History → Export (top right) → CSV' },
+                  { bank: 'Westpac Online',       steps: 'Accounts → View Transactions → Export → CSV' },
+                  { bank: 'NAB Internet Banking', steps: 'Accounts → Transactions → Export → CSV format' },
+                ].map(({ bank, steps }) => (
+                  <div key={bank} style={{ padding: '10px 12px', borderRadius: 8, backgroundColor: '#0F172A', border: '1px solid #334155' }}>
+                    <p style={{ color: '#F1F5F9', fontSize: 12, fontWeight: 700, margin: '0 0 3px' }}>🏦 {bank}</p>
+                    <p style={{ color: '#64748B', fontSize: 11, margin: 0, lineHeight: 1.5 }}>{steps}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Drop zone */}
+              <div
+                onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={e => { e.preventDefault(); setDragging(false); processFile(e.dataTransfer.files[0]); }}
+                onClick={() => fileRef.current?.click()}
+                style={{
+                  border: `2px dashed ${dragging ? '#06B6D4' : '#334155'}`,
+                  borderRadius: 10, padding: '40px 20px', textAlign: 'center', cursor: 'pointer',
+                  backgroundColor: dragging ? '#06B6D410' : '#0F172A',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div style={{ fontSize: 40, marginBottom: 10 }}>{loading ? '⏳' : '📂'}</div>
+                <p style={{ color: '#F1F5F9', fontSize: 15, fontWeight: 700, margin: '0 0 6px' }}>
+                  {loading ? 'Reading file…' : 'Drop your CSV file here'}
+                </p>
+                <p style={{ color: '#64748B', fontSize: 13, margin: '0 0 16px' }}>or click to browse your files</p>
+                <div style={{ display: 'inline-block', padding: '9px 22px', borderRadius: 8, backgroundColor: '#06B6D4', color: '#fff', fontSize: 13, fontWeight: 700, pointerEvents: 'none' }}>
+                  Browse CSV file
+                </div>
+              </div>
+              <input ref={fileRef} type="file" accept=".csv,.txt" style={{ display: 'none' }}
+                     onChange={e => processFile(e.target.files[0])} />
+
+              {error && (
+                <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 8, backgroundColor: '#EF444415', border: '1px solid #EF444440' }}>
+                  <p style={{ color: '#EF4444', fontSize: 13, margin: 0 }}>⚠ {error}</p>
+                </div>
+              )}
+              <p style={{ color: '#475569', fontSize: 11, marginTop: 14, textAlign: 'center' }}>
+                Only debit transactions (money out) are imported. Credits, salary deposits, and transfers are automatically skipped.
+              </p>
+            </div>
+          )}
+
+          {/* ── Preview table ── */}
+          {rows.length > 0 && (
+            <div style={{ padding: 16 }}>
+              {/* Stats + controls */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12, flexWrap: 'wrap' }}>
+                <span style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700 }}>{rows.length} transactions found</span>
+                <span style={{ color: '#10B981', fontSize: 12 }}>✓ {categorized} auto-categorized</span>
+                {rows.length - categorized > 0 && <span style={{ color: '#F59E0B', fontSize: 12 }}>⚠ {rows.length - categorized} marked "Other" — review below</span>}
+                {dupCount > 0 && <span style={{ color: '#64748B', fontSize: 12 }}>🔁 {dupCount} possible duplicate{dupCount !== 1 ? 's' : ''} unchecked</span>}
+                <button onClick={toggleAll} style={{ marginLeft: 'auto', fontSize: 12, color: '#06B6D4', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                  {allNonDupSel ? 'Deselect all' : 'Select all'}
+                </button>
+                <button onClick={() => { setRows([]); setError(''); }}
+                        style={{ fontSize: 12, color: '#64748B', background: 'none', border: '1px solid #334155', borderRadius: 6, cursor: 'pointer', padding: '3px 10px' }}>
+                  ← Different file
+                </button>
+              </div>
+
+              <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid #334155' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#0F172A' }}>
+                      <th style={{ padding: '8px 10px', textAlign: 'center', color: '#64748B', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', width: 36 }}>✓</th>
+                      {['Date', 'Description', 'Amount', 'Category'].map(h => (
+                        <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: '#64748B', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, idx) => (
+                      <tr key={row._key} style={{ borderTop: '1px solid #1E293B', opacity: row._selected ? 1 : 0.4, backgroundColor: idx % 2 === 0 ? 'transparent' : '#0F172A18' }}>
+                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                          <input type="checkbox" checked={row._selected} onChange={() => toggleRow(row._key)} style={{ cursor: 'pointer', accentColor: '#06B6D4' }} />
+                        </td>
+                        <td style={{ padding: '6px 10px', color: '#94A3B8', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12 }}>{row.date}</td>
+                        <td style={{ padding: '6px 10px', color: '#CBD5E1', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {row._isDup && <span title="Possible duplicate — already in your expenses" style={{ marginRight: 5, color: '#F59E0B', fontSize: 11 }}>🔁</span>}
+                          {row.description || <span style={{ color: '#475569', fontStyle: 'italic' }}>No description</span>}
+                        </td>
+                        <td style={{ padding: '6px 10px', color: '#EF4444', whiteSpace: 'nowrap', fontFamily: 'monospace', fontWeight: 600 }}>
+                          -{formatCurrency(row.amount, currency)}
+                        </td>
+                        <td style={{ padding: '6px 10px' }}>
+                          <select value={row.category} onChange={e => updateCat(row._key, e.target.value)}
+                                  style={{ ...INPUT, width: 190, padding: '4px 8px', fontSize: 12, border: row.category === 'Other' ? '1px solid #F59E0B60' : '1px solid #334155' }}>
+                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {rows.length > 0 && (
+          <div style={{ padding: '14px 20px', borderTop: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
+            <button onClick={doImport} disabled={selectedRows.length === 0}
+                    style={{ padding: '10px 24px', backgroundColor: selectedRows.length ? '#10B981' : '#334155', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: selectedRows.length ? 'pointer' : 'not-allowed' }}>
+              ✓ Import {selectedRows.length} Transaction{selectedRows.length !== 1 ? 's' : ''}
+            </button>
+            <span style={{ color: '#64748B', fontSize: 12 }}>
+              {selectedRows.length > 0 ? `Total: ${formatCurrency(selectedRows.reduce((s, r) => s + r.amount, 0), currency)}` : 'Select transactions to import'}
+            </span>
+            <button onClick={onClose} style={{ marginLeft: 'auto', padding: '10px 16px', backgroundColor: 'transparent', color: '#64748B', border: '1px solid #334155', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Expenses component ────────────────────────────────
 export default function Expenses({ data, setExpenses, setBudgets }) {
   const { expenses, budgets, settings } = data;
@@ -223,9 +584,10 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
   const [form,      setForm]      = useState(blank);
   const [errors,    setErrors]    = useState({});
   const [editId,    setEditId]    = useState(null);
-  const [formOpen,  setFormOpen]  = useState(false);
-  const [toast,     setToast]     = useState({ message: '', type: 'success' });
-  const [deleteId,  setDeleteId]  = useState(null);
+  const [formOpen,   setFormOpen]   = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [toast,      setToast]      = useState({ message: '', type: 'success' });
+  const [deleteId,   setDeleteId]   = useState(null);
 
   // Budget editing
   const [budgetEdit,  setBudgetEdit]  = useState(false);
@@ -540,6 +902,23 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
             })}
           </div>
         )}
+      </div>
+
+      {/* ── Import Bank Statement card ──────────────────────── */}
+      <div style={{ ...CARD, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: '#06B6D420', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Upload size={15} color="#06B6D4" />
+          </div>
+          <div>
+            <span style={{ color: '#F1F5F9', fontSize: 14, fontWeight: 700, display: 'block' }}>Import Bank Statement</span>
+            <span style={{ color: '#64748B', fontSize: 12 }}>Upload a CSV export from ANZ, CommBank, Westpac or NAB — transactions auto-categorized</span>
+          </div>
+        </div>
+        <button onClick={() => setImportOpen(true)}
+                style={{ padding: '9px 18px', backgroundColor: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Upload size={13} /> Import CSV
+        </button>
       </div>
 
       {/* ── Collapsible Add Expense form ───────────────────── */}
@@ -918,6 +1297,20 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
       )}
 
       <Toast message={toast.message} type={toast.type} />
+
+      {/* ── Import Statement modal ────────────────────────── */}
+      {importOpen && (
+        <ImportModal
+          existing={expenses}
+          currency={currency}
+          onClose={() => setImportOpen(false)}
+          onImport={rows => {
+            setExpenses(prev => [...(Array.isArray(prev) ? prev : expenses), ...rows]);
+            setImportOpen(false);
+            showToast(`${rows.length} transaction${rows.length !== 1 ? 's' : ''} imported ✓`);
+          }}
+        />
+      )}
     </div>
   );
 }
