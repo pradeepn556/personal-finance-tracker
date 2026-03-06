@@ -108,7 +108,7 @@ npm run dev
 
 ## About
 
-**Pradeep N** — BA / Product Specialist
+**Pradeep Narsupalli** — Product Specialist
 
 This project is part of my portfolio demonstrating AI-augmented product development — where I own the product vision, requirements, design direction, and UAT, while using Claude Code as my implementation engine.
 
