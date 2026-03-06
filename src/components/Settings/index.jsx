@@ -49,6 +49,99 @@ function Toast({ message, type }) {
   );
 }
 
+// ── Credit Card / Account manager ──────────────────────────
+// Simple list of user-named cards stored in settings.cards[].
+// Rendered inside the Credit Cards section in Settings.
+function CardManager({ cards, onSave }) {
+  const [input, setInput]   = useState('');
+  const [editing, setEditing] = useState(null); // index of card being renamed
+  const [editVal, setEditVal] = useState('');
+
+  function addCard() {
+    const name = input.trim();
+    if (!name || cards.includes(name)) return;
+    onSave([...cards, name]);
+    setInput('');
+  }
+
+  function deleteCard(i) {
+    onSave(cards.filter((_, idx) => idx !== i));
+  }
+
+  function startEdit(i) { setEditing(i); setEditVal(cards[i]); }
+
+  function saveEdit(i) {
+    const name = editVal.trim();
+    if (!name) return;
+    const updated = [...cards];
+    updated[i] = name;
+    onSave(updated);
+    setEditing(null);
+  }
+
+  return (
+    <div>
+      {/* Existing cards */}
+      {cards.length === 0 ? (
+        <p style={{ color: '#475569', fontSize: 13, marginBottom: 14 }}>
+          No cards added yet. Add your credit cards and bank accounts below — they'll appear as options in the Import Statement dialog.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+          {cards.map((card, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, backgroundColor: '#0F172A', border: '1px solid #334155' }}>
+              <span style={{ fontSize: 16 }}>💳</span>
+              {editing === i ? (
+                <>
+                  <input value={editVal} onChange={e => setEditVal(e.target.value)}
+                         onKeyDown={e => { if (e.key === 'Enter') saveEdit(i); if (e.key === 'Escape') setEditing(null); }}
+                         autoFocus
+                         style={{ ...INPUT, flex: 1, padding: '5px 10px', fontSize: 13 }} />
+                  <button onClick={() => saveEdit(i)}
+                          style={{ padding: '5px 12px', backgroundColor: '#10B981', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                    Save
+                  </button>
+                  <button onClick={() => setEditing(null)}
+                          style={{ padding: '5px 10px', backgroundColor: 'transparent', color: '#64748B', border: '1px solid #334155', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 600, flex: 1 }}>{card}</span>
+                  <button onClick={() => startEdit(i)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: '3px 8px', borderRadius: 5, fontSize: 12 }}>
+                    ✏️ Edit
+                  </button>
+                  <button onClick={() => deleteCard(i)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', padding: '3px 8px', borderRadius: 5, fontSize: 12 }}>
+                    ✕ Remove
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add new card input */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input value={input} onChange={e => setInput(e.target.value)}
+               onKeyDown={e => e.key === 'Enter' && addCard()}
+               placeholder="e.g. ANZ Amex, Woolies Everyday Card, CommBank Savings…"
+               style={{ ...INPUT, flex: 1 }} />
+        <button onClick={addCard} disabled={!input.trim()}
+                style={{ padding: '0 18px', height: 42, backgroundColor: input.trim() ? '#06B6D4' : '#334155', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: input.trim() ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>
+          + Add Card
+        </button>
+      </div>
+      <p style={{ color: '#475569', fontSize: 11, marginTop: 8 }}>
+        These names appear in the Import Statement dropdown and are saved on each transaction so you can filter by card later.
+      </p>
+    </div>
+  );
+}
+
 // ── Section card ───────────────────────────────────────────
 function Section({ emoji, title, subtitle, children }) {
   return (
@@ -495,6 +588,12 @@ export default function SettingsTab({ data, setSettings, setData }) {
             ⚠️ Export first if you want to preserve your current data before importing.
           </p>
         </div>
+      </Section>
+
+      {/* ── Credit Cards & Accounts ────────────────────────── */}
+      <Section emoji="💳" title="CREDIT CARDS & ACCOUNTS"
+               subtitle="Add your cards and bank accounts — shown as options when importing bank statements">
+        <CardManager cards={settings?.cards || []} onSave={cards => setSettings(s => ({ ...s, cards }))} />
       </Section>
 
       {/* ── Budget Management ─────────────────────────────── */}

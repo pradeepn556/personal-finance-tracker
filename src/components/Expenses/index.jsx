@@ -189,6 +189,12 @@ function detectColumns(headers) {
 }
 
 // Full pipeline: CSV text → array of importable transactions
+//
+// Sign-convention auto-detection:
+//   Standard banks (CommBank, Westpac, NAB): purchases = NEGATIVE, credits = POSITIVE
+//   ANZ Amex and some credit cards:          purchases = POSITIVE, credits = NEGATIVE
+// Detected by comparing count of positive vs negative amounts — whichever sign is
+// more common in the file is treated as the "expense" sign.
 function extractTransactionsFromCSV(text) {
   if (!text?.trim()) return { rows: [], error: 'File is empty.' };
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
@@ -205,6 +211,20 @@ function extractTransactionsFromCSV(text) {
     };
   }
 
+  // ── Pass 1: detect sign convention ──────────────────────
+  let positives = 0, negatives = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const parts  = parseCSVLine(lines[i]);
+    const rawAmt = parseFloat((parts[amtIdx] || '').replace(/[$,\s]/g, ''));
+    if (!isNaN(rawAmt) && rawAmt !== 0) {
+      if (rawAmt > 0) positives++; else negatives++;
+    }
+  }
+  // ANZ Amex: most amounts are positive (purchases) → treat positive as expense
+  // CommBank etc: most amounts are negative (purchases) → treat negative as expense
+  const positiveIsExpense = positives > negatives;
+
+  // ── Pass 2: extract expense rows ────────────────────────
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
     const parts = parseCSVLine(lines[i]);
@@ -213,24 +233,27 @@ function extractTransactionsFromCSV(text) {
     if (!date) continue;
     const rawAmt = parseFloat((parts[amtIdx] || '').replace(/[$,\s]/g, ''));
     if (isNaN(rawAmt) || rawAmt === 0) continue;
-    if (rawAmt > 0) continue;  // skip credits (salary, refunds, transfers in)
+    // Skip the "credit" side: payments received, refunds, salary deposits
+    if (positiveIsExpense ? rawAmt < 0 : rawAmt > 0) continue;
     const desc = descIdx !== -1 ? (parts[descIdx] || '').trim() : '';
     rows.push({
-      _key:      `${date}-${rawAmt}-${i}`,
-      _selected: true,
-      _isDup:    false,
+      _key:        `${date}-${rawAmt}-${i}`,
+      _selected:   true,
+      _isDup:      false,
       date,
-      amount:    Math.abs(rawAmt),
+      amount:      Math.abs(rawAmt),
       description: desc,
-      category:  autoCategorize(desc),
+      category:    autoCategorize(desc),
     });
   }
 
   if (rows.length === 0) {
     return {
       rows: [],
-      error: 'No expense transactions found. This file may only contain income/credits, or the format is unsupported. ' +
-             'Make sure your CSV has negative amounts for expenses.',
+      error: 'No expense transactions found. ' +
+             (positiveIsExpense
+               ? 'All non-purchase amounts were filtered. Check the file has your spending history.'
+               : 'This file may only contain income/credits or the format is unsupported.'),
     };
   }
   return { rows, error: null };
@@ -369,11 +392,12 @@ function SpendingCalendar({ expenses }) {
 
 // ── Bank Statement Import Modal ────────────────────────────
 // Full-screen modal: drop zone → preview table → import
-function ImportModal({ existing, onImport, onClose, currency }) {
-  const [rows,     setRows]     = useState([]);
-  const [error,    setError]    = useState('');
-  const [loading,  setLoading]  = useState(false);
-  const [dragging, setDragging] = useState(false);
+function ImportModal({ existing, onImport, onClose, currency, cards = [] }) {
+  const [rows,       setRows]       = useState([]);
+  const [error,      setError]      = useState('');
+  const [loading,    setLoading]    = useState(false);
+  const [dragging,   setDragging]   = useState(false);
+  const [selectedCard, setSelectedCard] = useState(cards[0] || '');
   const fileRef = useRef(null);
 
   // Check if this transaction already exists (same date + amount + description prefix)
@@ -415,10 +439,11 @@ function ImportModal({ existing, onImport, onClose, currency }) {
   function updateCat(key, cat) { setRows(prev => prev.map(r => r._key === key ? { ...r, category: cat } : r)); }
 
   function doImport() {
+    const card = selectedCard.trim() || 'Bank Import';
     const toImport = selectedRows.map(r => ({
       id: generateId('exp'),
       date: r.date, category: r.category, amount: r.amount,
-      description: r.description, paymentMethod: 'Bank Import', notes: '',
+      description: r.description, paymentMethod: card, notes: '',
     }));
     onImport(toImport);
   }
@@ -428,12 +453,32 @@ function ImportModal({ existing, onImport, onClose, currency }) {
       <div style={{ backgroundColor: '#1A2332', border: '1px solid #334155', borderRadius: 12, width: '100%', maxWidth: 900, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #334155', flexShrink: 0 }}>
-          <div>
-            <h3 style={{ color: '#F1F5F9', fontSize: 16, fontWeight: 700, margin: 0 }}>📥 Import Bank Statement</h3>
-            <p style={{ color: '#64748B', fontSize: 12, margin: '2px 0 0' }}>Upload a CSV export from ANZ, CommBank, Westpac, NAB or any Australian bank</p>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #334155', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: cards.length > 0 ? 12 : 0 }}>
+            <div>
+              <h3 style={{ color: '#F1F5F9', fontSize: 16, fontWeight: 700, margin: 0 }}>📥 Import Bank Statement</h3>
+              <p style={{ color: '#64748B', fontSize: 12, margin: '2px 0 0' }}>Upload a CSV export from ANZ, CommBank, Westpac, NAB or any Australian bank</p>
+            </div>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4, borderRadius: 6 }}><X size={18} /></button>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4, borderRadius: 6 }}><X size={18} /></button>
+          {/* Card selector — only shown when the user has saved cards in Settings */}
+          {cards.length > 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <label style={{ color: '#94A3B8', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>Which account is this statement for?</label>
+              <select value={selectedCard} onChange={e => setSelectedCard(e.target.value)}
+                      style={{ ...INPUT, width: 'auto', minWidth: 200, padding: '7px 12px', fontSize: 13, flex: 1 }}>
+                {cards.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="">Other / Unknown</option>
+              </select>
+              <span style={{ color: '#475569', fontSize: 11 }}>This will be saved on each imported transaction</span>
+            </div>
+          ) : (
+            <div style={{ padding: '8px 12px', borderRadius: 7, backgroundColor: '#06B6D410', border: '1px solid #06B6D430' }}>
+              <p style={{ color: '#06B6D4', fontSize: 12, margin: 0 }}>
+                💡 Add your credit cards in <strong>Settings → Credit Cards</strong> to tag imported transactions by card automatically.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Scrollable body */}
@@ -1303,6 +1348,7 @@ export default function Expenses({ data, setExpenses, setBudgets }) {
         <ImportModal
           existing={expenses}
           currency={currency}
+          cards={settings?.cards || []}
           onClose={() => setImportOpen(false)}
           onImport={rows => {
             setExpenses(prev => [...(Array.isArray(prev) ? prev : expenses), ...rows]);

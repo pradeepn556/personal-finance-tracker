@@ -19,6 +19,9 @@ export const DEFAULT_SETTINGS = {
   dateFormat:  'DD/MM/YYYY',
   theme:       'dark',
   chartsStyle: 'Professional',
+  // Credit cards / bank accounts — names shown in the import dialog and
+  // saved as paymentMethod on each transaction. Customise in Settings.
+  cards: [],
   notifications: {
     enabled:      true,
     budgetAlerts: true,
