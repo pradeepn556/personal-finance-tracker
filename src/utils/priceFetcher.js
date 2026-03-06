@@ -3,22 +3,22 @@
 // Live market price fetching:
 //   • Crypto               → CoinGecko (free, no key, CORS-friendly)
 //                            with Yahoo Finance as fallback
-//   • ASX Stocks / ETFs   → Alpha Vantage (free API key, CORS-friendly,
-//                            25 calls/day) — supports .AX suffix natively
+//   • ASX Stocks / ETFs   → Twelve Data (free API key, CORS-friendly,
+//                            800 calls/day) — supports .AX suffix natively
 //   • US Stocks / ETFs    → Finnhub (free API key, CORS-friendly,
 //                            60 calls/min, no daily limit)
 //   All sources            → Yahoo Finance fallback (CORS-blocked in most browsers)
 //
 // WHY two stock APIs?
 //   Finnhub's FREE tier covers US exchanges (NASDAQ, NYSE) but NOT the ASX.
-//   Alpha Vantage supports ASX stocks (BHP.AX, ANZ.AX, WOW.AX) on its free tier.
-//   Both are CORS-enabled and work from any browser.
+//   Twelve Data supports ASX stocks (.AX) with proper CORS headers on its free tier.
+//   Alpha Vantage was tested but does NOT include CORS headers — browser blocked.
 //
 // SETUP:
 //   1. Get a free Finnhub API key at https://finnhub.io/register
 //      (US stocks/ETFs — 60 calls/min, no daily limit)
-//   2. Get a free Alpha Vantage key at https://www.alphavantage.co/support/#api-key
-//      (ASX stocks/ETFs — 25 calls/day, free tier)
+//   2. Get a free Twelve Data key at https://twelvedata.com/register
+//      (ASX stocks/ETFs — 800 calls/day, free tier)
 //   3. Paste both keys in Settings → Live Prices
 //   4. Crypto works automatically via CoinGecko (no key needed)
 //
@@ -31,8 +31,8 @@
 
 const STATUS_KEY      = 'priceStatus';        // per-symbol { status, source, updatedAt }
 const REFRESH_KEY     = 'lastPriceRefresh';   // ISO timestamp of last batch refresh
-const FINNHUB_KEY_KEY = 'finnhubApiKey';      // Finnhub key  — US stocks / ETFs (60 calls/min, no daily limit)
-const ALPHA_KEY_KEY   = 'alphaVantageApiKey'; // Alpha Vantage key — ASX stocks (25 calls/day free)
+const FINNHUB_KEY_KEY = 'finnhubApiKey';      // Finnhub key    — US stocks / ETFs (60 calls/min, no daily limit)
+const TWELVE_KEY_KEY  = 'twelveDataApiKey';   // Twelve Data key — ASX stocks (800 calls/day free, CORS-enabled)
 const CACHE_TTL_MS    = 15 * 60 * 1000;      // 15 min — stale threshold for manual refresh badge
 const AUTO_TTL_MS     = 60 * 60 * 1000;      // 1 hour  — threshold for auto-refresh on page load
 
@@ -71,17 +71,18 @@ export function saveFinnhubKey(key) {
   try { localStorage.setItem(FINNHUB_KEY_KEY, (key || '').trim()); } catch { /* quota */ }
 }
 
-// ── Alpha Vantage API key helpers (ASX stocks) ───────────────
-// Why Alpha Vantage for ASX?
+// ── Twelve Data API key helpers (ASX stocks) ─────────────────
+// Why Twelve Data for ASX?
 //   Finnhub's FREE tier does NOT include ASX (Australian Securities Exchange) data.
-//   Alpha Vantage supports ASX stocks with the .AX suffix on its free tier.
-//   Free tier: 25 API calls/day — sufficient for a personal portfolio check once or twice daily.
-export function loadAlphaVantageKey() {
-  return localStorage.getItem(ALPHA_KEY_KEY) || '';
+//   Alpha Vantage was tested but has NO CORS headers — browser fetch is silently blocked.
+//   Twelve Data has proper CORS headers (Access-Control-Allow-Origin: *) AND supports
+//   ASX stocks with the .AX suffix on its free tier (800 calls/day).
+export function loadTwelveDataKey() {
+  return localStorage.getItem(TWELVE_KEY_KEY) || '';
 }
 
-export function saveAlphaVantageKey(key) {
-  try { localStorage.setItem(ALPHA_KEY_KEY, (key || '').trim()); } catch { /* quota */ }
+export function saveTwelveDataKey(key) {
+  try { localStorage.setItem(TWELVE_KEY_KEY, (key || '').trim()); } catch { /* quota */ }
 }
 
 // ── Price status helpers ─────────────────────────────────────
@@ -197,27 +198,28 @@ export async function fetchCoinGeckoPrice(rawSymbol, currency = 'AUD') {
   } catch { return null; }
 }
 
-// ── Alpha Vantage ─────────────────────────────────────────────
-// CORS-enabled, free tier: 25 calls/day, 5 calls/min.
+// ── Twelve Data ───────────────────────────────────────────────
+// CORS-enabled (Access-Control-Allow-Origin: *), free tier: 800 calls/day, 8 calls/min.
+// Verified CORS headers — browser fetches work without a proxy.
 // Primary source for ASX stocks (.AX suffix) — Finnhub free tier does not cover ASX.
 // Returns { price, fetchedAs } or null.
 //
-// Symbol format: any symbol Alpha Vantage supports, e.g. BHP.AX, ANZ.AX, WOW.AX
+// Symbol format: ANZ.AX, BHP.AX, WOW.AX, VGS.AX — same .AX suffix the user enters.
 // Prices are returned in the exchange's local currency (AUD for ASX).
-export async function fetchAlphaVantagePrice(rawSymbol, apiKey) {
+// API docs: https://twelvedata.com/docs#price
+export async function fetchTwelveDataPrice(rawSymbol, apiKey) {
   if (!apiKey) return null;
   const sym = rawSymbol.trim().toUpperCase();
   try {
-    const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`;
+    const url = `https://api.twelvedata.com/price?symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
-    const json  = await res.json();
-    // Alpha Vantage returns an empty "Global Quote" object when the symbol is not found
-    // or when the daily rate limit (25 calls) is exceeded (it returns a note instead).
-    if (json?.Note || json?.Information) return null;  // rate limit hit
-    const price = parseFloat(json?.['Global Quote']?.['05. price']);
+    const json = await res.json();
+    // Twelve Data returns { "code": 4xx, "status": "error" } for bad symbol or rate limit
+    if (json?.status === 'error') return null;
+    const price = parseFloat(json?.price);
     if (price && price > 0) return { price, fetchedAs: sym };
-  } catch { /* network error */ }
+  } catch { /* network / CORS error */ }
   return null;
 }
 
@@ -234,13 +236,13 @@ export async function fetchAlphaVantagePrice(rawSymbol, apiKey) {
 //   US stocks     → Finnhub → Yahoo Finance
 //
 // Add your free API keys in Settings → Live Prices.
-// Alpha Vantage: https://www.alphavantage.co/support/#api-key  (ASX, 25 calls/day)
-// Finnhub:       https://finnhub.io/register                   (US,  60 calls/min)
+// Twelve Data: https://twelvedata.com/register  (ASX, 800 calls/day, CORS-enabled ✓)
+// Finnhub:     https://finnhub.io/register      (US,  60 calls/min,  CORS-enabled ✓)
 export async function fetchLivePrice(symbol, type, currency = 'AUD') {
-  const sym        = symbol.trim().toUpperCase();
-  const finnhubKey = loadFinnhubKey();
-  const alphaKey   = loadAlphaVantageKey();
-  const isAXSymbol = sym.endsWith('.AX');
+  const sym         = symbol.trim().toUpperCase();
+  const finnhubKey  = loadFinnhubKey();
+  const twelveKey   = loadTwelveDataKey();
+  const isAXSymbol  = sym.endsWith('.AX');
 
   if (type === 'Crypto') {
     // CoinGecko: CORS-friendly, no key needed — primary source for crypto
@@ -260,13 +262,15 @@ export async function fetchLivePrice(symbol, type, currency = 'AUD') {
   }
 
   // ── Stocks, ETFs, Bonds, Mutual Funds, Other ──────────────
-  // ASX symbols (.AX suffix) → Alpha Vantage first (Finnhub free tier does not cover ASX)
-  if (isAXSymbol && alphaKey) {
-    const av = await fetchAlphaVantagePrice(sym, alphaKey);
-    if (av) return { price: av.price, source: 'Alpha Vantage', fetchedAs: av.fetchedAs, isASX: true };
+  // ASX symbols (.AX suffix) → Twelve Data first
+  //   Finnhub free tier does NOT cover the ASX.
+  //   Twelve Data has CORS headers (verified: Access-Control-Allow-Origin: *) and supports .AX.
+  if (isAXSymbol && twelveKey) {
+    const td = await fetchTwelveDataPrice(sym, twelveKey);
+    if (td) return { price: td.price, source: 'Twelve Data', fetchedAs: td.fetchedAs, isASX: true };
   }
 
-  // US stocks / ETFs (or ASX fallback if Alpha Vantage key not set) → Finnhub
+  // US stocks / ETFs (or ASX fallback if Twelve Data key not set) → Finnhub
   // fetchFinnhubPrice tries SYMBOL.AX first, then plain SYMBOL for NASDAQ/NYSE.
   // isASX flag tells the UI whether the price came from ASX (AUD) or another exchange (USD).
   if (finnhubKey) {

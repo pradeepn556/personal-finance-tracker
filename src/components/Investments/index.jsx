@@ -24,7 +24,7 @@ import { formatDate, todayISO } from '../../utils/dateHelpers';
 import {
   fetchLivePrice, loadPriceStatus, savePriceStatus,
   loadLastRefresh, saveLastRefresh, isPriceStale, AUTO_TTL_MS,
-  loadFinnhubKey,
+  loadFinnhubKey, loadTwelveDataKey,
 } from '../../utils/priceFetcher';
 
 // ── Constants ──────────────────────────────────────────────
@@ -421,14 +421,17 @@ export default function Investments({ data, setInvestments }) {
       const usdNote = result.isASX === false ? ' ⚠ USD price (US exchange)' : '';
       showToast(`${sym} added · ${result.source}: ${formatCurrency(result.price, currency)}${usdNote} ✓`);
     } else {
-      const hasKey = !!loadFinnhubKey();
+      const hasFinnhub  = !!loadFinnhubKey();
+      const hasTwelve   = !!loadTwelveDataKey();
+      const isASXSymbol = sym.endsWith('.AX');
       // Give specific hints based on what failed
       let hint = '';
-      if (!hasKey) {
-        hint = ' Add a free Finnhub key in Settings → Live Prices to enable stock prices.';
+      if (isASXSymbol && !hasTwelve) {
+        hint = ' ASX stock detected — add a free Twelve Data key in Settings → Live Prices for AUD prices.';
+      } else if (!isASXSymbol && !hasFinnhub) {
+        hint = ' Add a free Finnhub key in Settings → Live Prices to enable US stock prices.';
       } else {
-        // Works for both ASX (.AX) and US (NASDAQ/NYSE) — check the symbol is correct
-        hint = ` Check the symbol is correct. ASX stocks: use .AX suffix (e.g. BHP.AX, ANZ.AX). US stocks: plain ticker (e.g. IREN, AAPL).`;
+        hint = ` Check the symbol is correct. ASX stocks: use .AX suffix (e.g. BHP.AX, ANZ.AX). US stocks: plain ticker (e.g. AAPL, MSFT).`;
       }
       setFormPriceError(`Couldn't auto-fetch price for "${sym}".${hint} Enter it manually below.`);
       setPriceMode('manual');
@@ -728,7 +731,7 @@ export default function Investments({ data, setInvestments }) {
                   {priceMode === 'auto' && !formPriceError && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, color: '#475569' }}>
-                        📡 Current price auto-fetched on submit (Yahoo Finance / CoinGecko)
+                        📡 Current price auto-fetched on submit (Twelve Data · Finnhub · CoinGecko)
                       </span>
                       <button type="button" onClick={() => setPriceMode('manual')}
                               style={{ fontSize: 11, color: '#06B6D4', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>

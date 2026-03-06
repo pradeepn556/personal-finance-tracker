@@ -10,7 +10,7 @@ import { Download, Upload, Trash2, AlertCircle, CheckCircle, Database, Globe, Ke
 
 import { STORAGE_KEYS, saveAllData, clearAllData, getStorageSize } from '../../utils/storage';
 import { formatCurrency } from '../../utils/formatters';
-import { loadFinnhubKey, saveFinnhubKey, loadAlphaVantageKey, saveAlphaVantageKey } from '../../utils/priceFetcher';
+import { loadFinnhubKey, saveFinnhubKey, loadTwelveDataKey, saveTwelveDataKey } from '../../utils/priceFetcher';
 
 // ── Constants ──────────────────────────────────────────────
 const CURRENCIES = [
@@ -80,10 +80,10 @@ export default function SettingsTab({ data, setSettings, setData }) {
   const [showFinnhubKey, setShowFinnhubKey] = useState(false);
   const [finnhubSaved,   setFinnhubSaved]   = useState(!!loadFinnhubKey());
 
-  // ── Alpha Vantage API key state ─────────────────────────
-  const [alphaInput,   setAlphaInput]   = useState(loadAlphaVantageKey);
-  const [showAlphaKey, setShowAlphaKey] = useState(false);
-  const [alphaSaved,   setAlphaSaved]   = useState(!!loadAlphaVantageKey());
+  // ── Twelve Data API key state ───────────────────────────
+  const [twelveInput,   setTwelveInput]   = useState(loadTwelveDataKey);
+  const [showTwelveKey, setShowTwelveKey] = useState(false);
+  const [twelveSaved,   setTwelveSaved]   = useState(!!loadTwelveDataKey());
 
   const showToast = (msg, type = 'success') => {
     setToast({ message: msg, type });
@@ -108,17 +108,17 @@ export default function SettingsTab({ data, setSettings, setData }) {
     showToast('Finnhub API key cleared');
   }
 
-  function handleSaveAlphaKey() {
-    saveAlphaVantageKey(alphaInput);
-    setAlphaSaved(!!alphaInput.trim());
-    showToast(alphaInput.trim() ? 'Alpha Vantage API key saved ✓' : 'Alpha Vantage API key cleared');
+  function handleSaveTwelveKey() {
+    saveTwelveDataKey(twelveInput);
+    setTwelveSaved(!!twelveInput.trim());
+    showToast(twelveInput.trim() ? 'Twelve Data API key saved ✓' : 'Twelve Data API key cleared');
   }
 
-  function handleClearAlphaKey() {
-    setAlphaInput('');
-    saveAlphaVantageKey('');
-    setAlphaSaved(false);
-    showToast('Alpha Vantage API key cleared');
+  function handleClearTwelveKey() {
+    setTwelveInput('');
+    saveTwelveDataKey('');
+    setTwelveSaved(false);
+    showToast('Twelve Data API key cleared');
   }
 
   // ── Storage stats ──────────────────────────────────────
@@ -279,21 +279,21 @@ export default function SettingsTab({ data, setSettings, setData }) {
             <span style={{ marginLeft: 'auto', color: '#10B981', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>✓ Active</span>
           </div>
 
-          {/* Alpha Vantage — ASX stocks */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, backgroundColor: '#0F172A', border: `1px solid ${alphaSaved ? '#10B98140' : '#334155'}` }}>
+          {/* Twelve Data — ASX stocks */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, backgroundColor: '#0F172A', border: `1px solid ${twelveSaved ? '#10B98140' : '#334155'}` }}>
             <span style={{ fontSize: 16, flexShrink: 0 }}>🦘</span>
             <div>
-              <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>ASX Stocks & ETFs — Alpha Vantage</p>
+              <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>ASX Stocks & ETFs — Twelve Data</p>
               <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
-                Free API key required (25 calls/day). Covers Australian stocks with the{' '}
+                Free API key required (800 calls/day). Covers Australian stocks with the{' '}
                 <code style={{ color: '#06B6D4' }}>.AX</code> suffix:{' '}
                 <code style={{ color: '#06B6D4' }}>BHP.AX</code>, <code style={{ color: '#06B6D4' }}>ANZ.AX</code>,{' '}
                 <code style={{ color: '#06B6D4' }}>WOW.AX</code>, <code style={{ color: '#06B6D4' }}>VGS.AX</code>.{' '}
                 <em style={{ color: '#475569' }}>Finnhub's free tier does not cover the ASX — add this key for AUD prices.</em>
               </p>
             </div>
-            <span style={{ marginLeft: 'auto', color: alphaSaved ? '#10B981' : '#F59E0B', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-              {alphaSaved ? '✓ Active' : '⚠ Key needed'}
+            <span style={{ marginLeft: 'auto', color: twelveSaved ? '#10B981' : '#F59E0B', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+              {twelveSaved ? '✓ Active' : '⚠ Key needed'}
             </span>
           </div>
 
@@ -315,44 +315,44 @@ export default function SettingsTab({ data, setSettings, setData }) {
           </div>
         </div>
 
-        {/* Alpha Vantage API key input — ASX stocks */}
+        {/* Twelve Data API key input — ASX stocks */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
-            <label style={LABEL}>Alpha Vantage API Key <span style={{ color: '#06B6D4', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(ASX stocks · 25 calls/day)</span></label>
-            <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noreferrer"
+            <label style={LABEL}>Twelve Data API Key <span style={{ color: '#06B6D4', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(ASX stocks · 800 calls/day)</span></label>
+            <a href="https://twelvedata.com/register" target="_blank" rel="noreferrer"
                style={{ color: '#06B6D4', fontSize: 12, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Key size={11} /> Get free key at alphavantage.co →
+              <Key size={11} /> Get free key at twelvedata.com →
             </a>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ flex: 1, position: 'relative' }}>
               <input
-                type={showAlphaKey ? 'text' : 'password'}
-                value={alphaInput}
-                onChange={e => setAlphaInput(e.target.value)}
-                placeholder="Paste your Alpha Vantage API key here…"
+                type={showTwelveKey ? 'text' : 'password'}
+                value={twelveInput}
+                onChange={e => setTwelveInput(e.target.value)}
+                placeholder="Paste your Twelve Data API key here…"
                 style={{ ...INPUT, paddingRight: 40 }}
-                onKeyDown={e => e.key === 'Enter' && handleSaveAlphaKey()}
+                onKeyDown={e => e.key === 'Enter' && handleSaveTwelveKey()}
               />
               <button
-                onClick={() => setShowAlphaKey(v => !v)}
+                onClick={() => setShowTwelveKey(v => !v)}
                 style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#64748B' }}
-                title={showAlphaKey ? 'Hide key' : 'Show key'}>
-                {showAlphaKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                title={showTwelveKey ? 'Hide key' : 'Show key'}>
+                {showTwelveKey ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
-            <button onClick={handleSaveAlphaKey}
+            <button onClick={handleSaveTwelveKey}
                     style={{ height: 42, padding: '0 18px', backgroundColor: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               Save Key
             </button>
-            {alphaSaved && (
-              <button onClick={handleClearAlphaKey}
+            {twelveSaved && (
+              <button onClick={handleClearTwelveKey}
                       style={{ height: 42, padding: '0 14px', backgroundColor: 'transparent', color: '#EF4444', border: '1px solid #EF444440', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                 Clear
               </button>
             )}
           </div>
-          {alphaSaved && (
+          {twelveSaved && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#10B981' }} />
               <p style={{ color: '#10B981', fontSize: 12, margin: 0, fontWeight: 600 }}>
@@ -360,10 +360,10 @@ export default function SettingsTab({ data, setSettings, setData }) {
               </p>
             </div>
           )}
-          {!alphaSaved && (
+          {!twelveSaved && (
             <p style={{ color: '#64748B', fontSize: 12, marginTop: 8 }}>
-              💡 Visit <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noreferrer" style={{ color: '#06B6D4' }}>alphavantage.co</a>,
-              click "GET YOUR FREE API KEY TODAY", and paste it above. No credit card required.
+              💡 Visit <a href="https://twelvedata.com/register" target="_blank" rel="noreferrer" style={{ color: '#06B6D4' }}>twelvedata.com/register</a>,
+              sign up free (no credit card), copy your API key from the dashboard, and paste it above.
             </p>
           )}
         </div>
