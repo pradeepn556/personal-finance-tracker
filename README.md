@@ -1,6 +1,6 @@
 # Personal Finance Tracker
 
-**A production-quality personal finance management application** — designed, specified, and product-managed by me (Pradeep N, BA / Product Specialist), built through structured PRD-driven development using Claude Code.
+**A production-quality personal finance management application** — designed, specified, and product-managed by me (Pradeep N), built through structured PRD-driven development using Claude Code.
 
 This project demonstrates my ability to translate complex personal finance requirements into a fully functional, professionally designed web application — including detailed product specifications, iterative UAT cycles, edge case identification, and pixel-perfect design direction.
 
