@@ -417,15 +417,18 @@ export default function Investments({ data, setInvestments }) {
 
     if (result && result.price > 0) {
       commitInvestment(result.price);
-      showToast(`${sym} added · ${result.source}: ${formatCurrency(result.price, currency)} ✓`);
+      // If price came from a US exchange (NASDAQ/NYSE), note that it's in USD
+      const usdNote = result.isASX === false ? ' ⚠ USD price (US exchange)' : '';
+      showToast(`${sym} added · ${result.source}: ${formatCurrency(result.price, currency)}${usdNote} ✓`);
     } else {
       const hasKey = !!loadFinnhubKey();
       // Give specific hints based on what failed
       let hint = '';
       if (!hasKey) {
         hint = ' Add a free Finnhub key in Settings → Live Prices to enable stock prices.';
-      } else if (!sym.endsWith('.AX') && (form.type === 'Stock' || form.type === 'ETF' || form.type === 'Bond')) {
-        hint = ` For ASX stocks, try adding .AX suffix (e.g. ${sym}.AX).`;
+      } else {
+        // Works for both ASX (.AX) and US (NASDAQ/NYSE) — check the symbol is correct
+        hint = ` Check the symbol is correct. ASX stocks: use .AX suffix (e.g. BHP.AX, ANZ.AX). US stocks: plain ticker (e.g. IREN, AAPL).`;
       }
       setFormPriceError(`Couldn't auto-fetch price for "${sym}".${hint} Enter it manually below.`);
       setPriceMode('manual');
@@ -529,7 +532,11 @@ export default function Investments({ data, setInvestments }) {
 
     results.forEach(({ sym, result }) => {
       if (result && result.price > 0) {
-        newStatus[sym]    = { status: 'ok',   source: result.source, updatedAt: now };
+        newStatus[sym]    = {
+          status: 'ok', source: result.source, updatedAt: now,
+          isASX: result.isASX,        // true = AUD from ASX, false = USD from NASDAQ/NYSE
+          fetchedAs: result.fetchedAs, // exact symbol used for the fetch
+        };
         priceUpdates[sym] = result.price;
       } else {
         newStatus[sym] = { status: 'fail', updatedAt: now };
@@ -858,10 +865,23 @@ export default function Investments({ data, setInvestments }) {
                       <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.avgBuy, currency)}</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontFamily: 'monospace', fontSize: 12 }}>
                         {priceStatus[h.symbol]?.status === 'ok'
-                          ? <span title={`Live · ${priceStatus[h.symbol].source}`} style={{ color: '#10B981', fontSize: 9, verticalAlign: 'middle', marginRight: 5 }}>●</span>
+                          ? <span title={`Live · ${priceStatus[h.symbol].source} · ${priceStatus[h.symbol].fetchedAs ?? h.symbol}`} style={{ color: '#10B981', fontSize: 9, verticalAlign: 'middle', marginRight: 4 }}>●</span>
                           : priceStatus[h.symbol]?.status === 'fail'
-                          ? <span title="Price fetch failed — showing manual price" style={{ color: '#EF4444', fontSize: 9, verticalAlign: 'middle', marginRight: 5 }}>○</span>
+                          ? <span title="Price fetch failed — showing manual price" style={{ color: '#EF4444', fontSize: 9, verticalAlign: 'middle', marginRight: 4 }}>○</span>
                           : null}
+                        {/* USD warning badge: price came from a non-ASX exchange (NASDAQ/NYSE), so it's in USD not AUD */}
+                        {priceStatus[h.symbol]?.status === 'ok' && priceStatus[h.symbol]?.isASX === false && (
+                          <span
+                            title={`Price fetched from ${priceStatus[h.symbol].fetchedAs ?? h.symbol} (US exchange) — value shown in USD, not AUD`}
+                            style={{
+                              fontSize: 9, fontWeight: 700, color: '#F59E0B',
+                              backgroundColor: '#F59E0B22', border: '1px solid #F59E0B44',
+                              padding: '1px 4px', borderRadius: 3, marginRight: 4,
+                              verticalAlign: 'middle', cursor: 'help',
+                            }}>
+                            USD
+                          </span>
+                        )}
                         <span style={{ color: '#94A3B8' }}>{formatCurrency(h.curPri, currency)}</span>
                       </td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#94A3B8', fontFamily: 'monospace', fontSize: 12 }}>{formatCurrency(h.cost, currency)}</td>
