@@ -1,26 +1,42 @@
 # Personal Finance Tracker
 
-**A production-quality personal finance management application** — designed, specified, and product-managed by me (Pradeep N), built through structured PRD-driven development using Claude Code as the implementation engine.
+---
+
+## The Story Behind This
+
+My partner and I had a system that worked — technically. Two separate spreadsheets. One for investments, one for monthly expenses. A third for tracking how our closed positions performed — which stocks we sold, what we paid, what we got back, whether the returns were actually worth it against our personal savings goals.
+
+Every number in those spreadsheets was entered by hand. Every month, we'd sit down, go through bank statements transaction by transaction, type figures in, build our own formulas to calculate portfolio P&L, and try to piece together a picture of where we actually stood financially. It wasn't broken. But it was slow, error-prone, and — honestly — the kind of friction that makes you put it off until you're two months behind.
+
+The investment side was the worst of it. We hold both ASX stocks and some US positions, plus a small crypto allocation. Tracking live prices meant manually looking them up and updating cells. Tracking a partial sell — where you close half a position but hold the rest — required careful formula gymnastics to keep the cost basis right. One mistake and the P&L numbers were silently wrong until you noticed something didn't add up.
+
+At some point the conversation shifted from "let's fix the spreadsheets" to "why are we doing this manually at all?"
 
 ---
 
-## Why This Project Exists
+## What This Became
 
-This project is not just a finance app. It's a **proof of concept for how I work**.
+The idea was simple: build something personalised to exactly how we track our finances — not a generic app that almost fits, but something designed around our actual workflows.
 
-I started my career as a frontend web developer, then moved into a product specialist role. That combination — knowing how to build things AND knowing what should be built and why — is what this project demonstrates end-to-end.
+The requirements that came out of that conversation:
+- **Bank statements should feed directly in** — download the CSV from ANZ, drop it in, transactions appear categorised. Done.
+- **Investment prices should update automatically** — ASX stocks, US stocks, crypto, all from live APIs, no manual lookups.
+- **Closed positions should tell the real story** — when we sell, the app should immediately show what we made or lost on that specific lot, separate from what's still open.
+- **Everything stays private** — no linking bank accounts to a third-party service, no cloud sync, no subscription. Our data, on our device.
 
-**My process here:**
+What started as "let's solve the spreadsheet problem" became a properly built application — five modules, a data model designed around investment tranches, bank statement import that handles the quirks of how ANZ actually exports data, and a dashboard that gives us the net worth and cash flow picture at a glance.
 
-1. **Requirements-first** — I wrote a 35-page PRD before any code was written. Not high-level "the app should track investments" — actual data models, edge cases, API architecture decisions, and UAT criteria. The kind of spec you can build from without guessing.
+The fact that it also became a useful exercise in applying AI-directed development and product thinking end-to-end — that's a secondary outcome. The primary one is that we don't do the spreadsheet routine anymore.
 
-2. **AI-directed execution** — I used Claude Code to implement the specification, rather than writing the code myself. This was intentional. I wanted to demonstrate that detailed requirements + structured direction + rigorous validation can produce production-quality software — and that this is a higher-leverage model than a solo developer building in isolation.
+---
 
-3. **Hands-on UAT with real data** — I tested with my own ANZ Amex statements, my own ASX holdings, my own pay cycles. That's how I caught bugs like the sign-convention issue (ANZ Amex exports purchases as positive amounts — the opposite of every other bank), and the CORS failure on Alpha Vantage that was disguised as an API key problem.
+## How It Was Built
 
-4. **End-to-end ownership** — Requirements → design direction → implementation → testing → iteration → deployment. One person, full lifecycle.
+I have a background in frontend web development, and over time moved into a product specialist role. So I brought both sides to this: I knew what to build and why, and I knew enough about how things get built to specify it precisely.
 
-If you're evaluating this as a portfolio piece: the app is the output. The thinking behind it is the point.
+I used **Claude Code** as the implementation engine — directing it with a detailed 35-page specification rather than writing the code myself. Not because I couldn't, but because I wanted to apply the same model I use professionally: clear requirements, structured direction, and rigorous validation. The interesting thing about that workflow is that the quality of what gets built is almost entirely determined by the quality of how you specify and test it. This project is the proof of that.
+
+Testing happened with real data — my actual ANZ Amex statement, my real ASX holdings, real pay cycles. That's how I caught things like the ANZ Amex sign-convention issue (their credit card statements export purchases as positive amounts — the opposite of every standard bank account), which only surfaced when 2 of 57 real transactions came through instead of all 57. Synthetic test data would never have caught it.
 
 ---
 
