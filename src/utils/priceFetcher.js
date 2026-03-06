@@ -1,35 +1,40 @@
 // ============================================================
 // utils/priceFetcher.js
 // Live market price fetching:
-//   • Crypto                → CoinGecko (free, no key, CORS-friendly)
-//                             with Yahoo Finance as fallback
-//   • Stocks / ETFs / Bonds → Finnhub (free API key, CORS-friendly,
-//                             60 calls/min) with Yahoo Finance fallback
+//   • Crypto               → CoinGecko (free, no key, CORS-friendly)
+//                            with Yahoo Finance as fallback
+//   • ASX Stocks / ETFs   → Alpha Vantage (free API key, CORS-friendly,
+//                            25 calls/day) — supports .AX suffix natively
+//   • US Stocks / ETFs    → Finnhub (free API key, CORS-friendly,
+//                            60 calls/min, no daily limit)
+//   All sources            → Yahoo Finance fallback (CORS-blocked in most browsers)
 //
-// WHY Finnhub for stocks?
-//   Yahoo Finance's unofficial API does NOT include the CORS headers
-//   that browsers require (Access-Control-Allow-Origin). This means
-//   every browser-side fetch to Yahoo Finance is silently blocked.
-//   Finnhub includes proper CORS headers and works from any browser.
+// WHY two stock APIs?
+//   Finnhub's FREE tier covers US exchanges (NASDAQ, NYSE) but NOT the ASX.
+//   Alpha Vantage supports ASX stocks (BHP.AX, ANZ.AX, WOW.AX) on its free tier.
+//   Both are CORS-enabled and work from any browser.
 //
 // SETUP:
 //   1. Get a free Finnhub API key at https://finnhub.io/register
-//      (30 seconds, no credit card — free tier: 60 calls/min)
-//   2. Paste the key in Settings → Live Prices
-//   3. Crypto prices work automatically via CoinGecko (no key needed)
+//      (US stocks/ETFs — 60 calls/min, no daily limit)
+//   2. Get a free Alpha Vantage key at https://www.alphavantage.co/support/#api-key
+//      (ASX stocks/ETFs — 25 calls/day, free tier)
+//   3. Paste both keys in Settings → Live Prices
+//   4. Crypto works automatically via CoinGecko (no key needed)
 //
 // SYMBOL FORMAT:
-//   ASX stocks  → ANZ.AX, WOW.AX, WTC.AX, CBA.AX  (try .AX suffix first)
+//   ASX stocks  → ANZ.AX, WOW.AX, WTC.AX, CBA.AX  (always use .AX suffix)
 //   US stocks   → AAPL, TSLA, MSFT, NVDA
 //   ETFs        → VGS.AX, A200.AX, NDQ.AX, SPY
 //   Crypto      → BTC, ETH, SOL, ADA, DOGE (any from COINGECKO_IDS list)
 // ============================================================
 
-const STATUS_KEY      = 'priceStatus';      // per-symbol { status, source, updatedAt }
-const REFRESH_KEY     = 'lastPriceRefresh'; // ISO timestamp of last batch refresh
-const FINNHUB_KEY_KEY = 'finnhubApiKey';    // user's Finnhub API key (optional but recommended)
-const CACHE_TTL_MS    = 15 * 60 * 1000;    // 15 min — stale threshold for manual refresh badge
-const AUTO_TTL_MS     = 60 * 60 * 1000;    // 1 hour  — threshold for auto-refresh on page load
+const STATUS_KEY      = 'priceStatus';        // per-symbol { status, source, updatedAt }
+const REFRESH_KEY     = 'lastPriceRefresh';   // ISO timestamp of last batch refresh
+const FINNHUB_KEY_KEY = 'finnhubApiKey';      // Finnhub key  — US stocks / ETFs (60 calls/min, no daily limit)
+const ALPHA_KEY_KEY   = 'alphaVantageApiKey'; // Alpha Vantage key — ASX stocks (25 calls/day free)
+const CACHE_TTL_MS    = 15 * 60 * 1000;      // 15 min — stale threshold for manual refresh badge
+const AUTO_TTL_MS     = 60 * 60 * 1000;      // 1 hour  — threshold for auto-refresh on page load
 
 // ── CoinGecko coin ID mapping ───────────────────────────────
 // Maps common uppercase ticker → CoinGecko coin ID.
@@ -57,13 +62,26 @@ export const COINGECKO_IDS = {
   RENDER:'render-token',         FET:   'fetch-ai',
 };
 
-// ── Finnhub API key helpers ──────────────────────────────────
+// ── Finnhub API key helpers (US stocks / ETFs) ──────────────
 export function loadFinnhubKey() {
   return localStorage.getItem(FINNHUB_KEY_KEY) || '';
 }
 
 export function saveFinnhubKey(key) {
   try { localStorage.setItem(FINNHUB_KEY_KEY, (key || '').trim()); } catch { /* quota */ }
+}
+
+// ── Alpha Vantage API key helpers (ASX stocks) ───────────────
+// Why Alpha Vantage for ASX?
+//   Finnhub's FREE tier does NOT include ASX (Australian Securities Exchange) data.
+//   Alpha Vantage supports ASX stocks with the .AX suffix on its free tier.
+//   Free tier: 25 API calls/day — sufficient for a personal portfolio check once or twice daily.
+export function loadAlphaVantageKey() {
+  return localStorage.getItem(ALPHA_KEY_KEY) || '';
+}
+
+export function saveAlphaVantageKey(key) {
+  try { localStorage.setItem(ALPHA_KEY_KEY, (key || '').trim()); } catch { /* quota */ }
 }
 
 // ── Price status helpers ─────────────────────────────────────
@@ -179,6 +197,30 @@ export async function fetchCoinGeckoPrice(rawSymbol, currency = 'AUD') {
   } catch { return null; }
 }
 
+// ── Alpha Vantage ─────────────────────────────────────────────
+// CORS-enabled, free tier: 25 calls/day, 5 calls/min.
+// Primary source for ASX stocks (.AX suffix) — Finnhub free tier does not cover ASX.
+// Returns { price, fetchedAs } or null.
+//
+// Symbol format: any symbol Alpha Vantage supports, e.g. BHP.AX, ANZ.AX, WOW.AX
+// Prices are returned in the exchange's local currency (AUD for ASX).
+export async function fetchAlphaVantagePrice(rawSymbol, apiKey) {
+  if (!apiKey) return null;
+  const sym = rawSymbol.trim().toUpperCase();
+  try {
+    const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const json  = await res.json();
+    // Alpha Vantage returns an empty "Global Quote" object when the symbol is not found
+    // or when the daily rate limit (25 calls) is exceeded (it returns a note instead).
+    if (json?.Note || json?.Information) return null;  // rate limit hit
+    const price = parseFloat(json?.['Global Quote']?.['05. price']);
+    if (price && price > 0) return { price, fetchedAs: sym };
+  } catch { /* network error */ }
+  return null;
+}
+
 // ── Main entry ───────────────────────────────────────────────
 // Returns { price: number, source: string, fetchedAs?: string, isASX?: boolean } | null
 //
@@ -186,16 +228,19 @@ export async function fetchCoinGeckoPrice(rawSymbol, currency = 'AUD') {
 // `isASX` is false → price fetched from NASDAQ/NYSE (USD) — UI should warn the user
 // `isASX` is undefined → source doesn't distinguish (CoinGecko, Yahoo Finance)
 //
-// Priority:
-//   Crypto  → CoinGecko → Yahoo Finance fallback
-//   Stocks  → Finnhub (if key set) → Yahoo Finance fallback
+// Routing priority:
+//   Crypto        → CoinGecko → Yahoo Finance → Finnhub
+//   ASX (.AX)     → Alpha Vantage → Finnhub fallback → Yahoo Finance
+//   US stocks     → Finnhub → Yahoo Finance
 //
-// If no Finnhub key is configured AND Yahoo Finance is CORS-blocked,
-// stocks will fail to fetch. Go to Settings → Live Prices to add your
-// free Finnhub API key.
+// Add your free API keys in Settings → Live Prices.
+// Alpha Vantage: https://www.alphavantage.co/support/#api-key  (ASX, 25 calls/day)
+// Finnhub:       https://finnhub.io/register                   (US,  60 calls/min)
 export async function fetchLivePrice(symbol, type, currency = 'AUD') {
   const sym        = symbol.trim().toUpperCase();
   const finnhubKey = loadFinnhubKey();
+  const alphaKey   = loadAlphaVantageKey();
+  const isAXSymbol = sym.endsWith('.AX');
 
   if (type === 'Crypto') {
     // CoinGecko: CORS-friendly, no key needed — primary source for crypto
@@ -206,7 +251,7 @@ export async function fetchLivePrice(symbol, type, currency = 'AUD') {
     const yf = await fetchYahooPrice(sym);
     if (yf) return { price: yf.price, source: 'Yahoo Finance', fetchedAs: yf.fetchedAs };
 
-    // Finnhub fallback for crypto (in case CoinGecko and Yahoo both fail)
+    // Finnhub last-resort fallback for crypto
     if (finnhubKey) {
       const fh = await fetchFinnhubPrice(sym, finnhubKey);
       if (fh) return { price: fh.price, source: 'Finnhub', fetchedAs: fh.fetchedAs, isASX: fh.isASX };
@@ -214,17 +259,23 @@ export async function fetchLivePrice(symbol, type, currency = 'AUD') {
     return null;
   }
 
-  // Stocks, ETFs, Bonds, Mutual Funds, Other
-  // 1. Finnhub (CORS-enabled) — primary source when API key is configured.
-  //    Tries SYMBOL.AX first (ASX, AUD), then plain SYMBOL (NASDAQ/NYSE, USD).
-  //    isASX flag tells the UI whether the price came from ASX (AUD) or another exchange (USD).
+  // ── Stocks, ETFs, Bonds, Mutual Funds, Other ──────────────
+  // ASX symbols (.AX suffix) → Alpha Vantage first (Finnhub free tier does not cover ASX)
+  if (isAXSymbol && alphaKey) {
+    const av = await fetchAlphaVantagePrice(sym, alphaKey);
+    if (av) return { price: av.price, source: 'Alpha Vantage', fetchedAs: av.fetchedAs, isASX: true };
+  }
+
+  // US stocks / ETFs (or ASX fallback if Alpha Vantage key not set) → Finnhub
+  // fetchFinnhubPrice tries SYMBOL.AX first, then plain SYMBOL for NASDAQ/NYSE.
+  // isASX flag tells the UI whether the price came from ASX (AUD) or another exchange (USD).
   if (finnhubKey) {
     const fh = await fetchFinnhubPrice(sym, finnhubKey);
     if (fh) return { price: fh.price, source: 'Finnhub', fetchedAs: fh.fetchedAs, isASX: fh.isASX };
   }
 
-  // 2. Yahoo Finance fallback (CORS-blocked on most browser deployments,
-  //    but may work in some local/dev environments)
+  // Yahoo Finance fallback (CORS-blocked on most browser deployments,
+  // but may work in some local/dev environments)
   const yf = await fetchYahooPrice(sym);
   if (yf) return { price: yf.price, source: 'Yahoo Finance', fetchedAs: yf.fetchedAs };
 

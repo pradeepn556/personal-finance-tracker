@@ -10,7 +10,7 @@ import { Download, Upload, Trash2, AlertCircle, CheckCircle, Database, Globe, Ke
 
 import { STORAGE_KEYS, saveAllData, clearAllData, getStorageSize } from '../../utils/storage';
 import { formatCurrency } from '../../utils/formatters';
-import { loadFinnhubKey, saveFinnhubKey } from '../../utils/priceFetcher';
+import { loadFinnhubKey, saveFinnhubKey, loadAlphaVantageKey, saveAlphaVantageKey } from '../../utils/priceFetcher';
 
 // ── Constants ──────────────────────────────────────────────
 const CURRENCIES = [
@@ -80,6 +80,11 @@ export default function SettingsTab({ data, setSettings, setData }) {
   const [showFinnhubKey, setShowFinnhubKey] = useState(false);
   const [finnhubSaved,   setFinnhubSaved]   = useState(!!loadFinnhubKey());
 
+  // ── Alpha Vantage API key state ─────────────────────────
+  const [alphaInput,   setAlphaInput]   = useState(loadAlphaVantageKey);
+  const [showAlphaKey, setShowAlphaKey] = useState(false);
+  const [alphaSaved,   setAlphaSaved]   = useState(!!loadAlphaVantageKey());
+
   const showToast = (msg, type = 'success') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast({ message: '', type: 'success' }), 3500);
@@ -101,6 +106,19 @@ export default function SettingsTab({ data, setSettings, setData }) {
     saveFinnhubKey('');
     setFinnhubSaved(false);
     showToast('Finnhub API key cleared');
+  }
+
+  function handleSaveAlphaKey() {
+    saveAlphaVantageKey(alphaInput);
+    setAlphaSaved(!!alphaInput.trim());
+    showToast(alphaInput.trim() ? 'Alpha Vantage API key saved ✓' : 'Alpha Vantage API key cleared');
+  }
+
+  function handleClearAlphaKey() {
+    setAlphaInput('');
+    saveAlphaVantageKey('');
+    setAlphaSaved(false);
+    showToast('Alpha Vantage API key cleared');
   }
 
   // ── Storage stats ──────────────────────────────────────
@@ -245,29 +263,50 @@ export default function SettingsTab({ data, setSettings, setData }) {
       {/* ── Live Prices / API Keys ────────────────────────── */}
       <Section emoji="📡" title="LIVE PRICES" subtitle="Configure market data source for real-time investment prices">
 
-        {/* How it works */}
+        {/* How it works — 3 source cards */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+
+          {/* CoinGecko */}
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, backgroundColor: '#0F172A', border: '1px solid #334155' }}>
             <span style={{ fontSize: 16, flexShrink: 0 }}>🪙</span>
             <div>
-              <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>Crypto prices — CoinGecko</p>
+              <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>Crypto — CoinGecko</p>
               <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
                 Free, no key needed. Works out of the box for BTC, ETH, SOL, ADA, and 40+ coins.
-                Just enter the ticker symbol (e.g. <code style={{ color: '#06B6D4' }}>BTC</code>, <code style={{ color: '#06B6D4' }}>ETH</code>).
+                Just enter the ticker (e.g. <code style={{ color: '#06B6D4' }}>BTC</code>, <code style={{ color: '#06B6D4' }}>ETH</code>).
               </p>
             </div>
             <span style={{ marginLeft: 'auto', color: '#10B981', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>✓ Active</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, backgroundColor: '#0F172A', border: `1px solid ${finnhubSaved ? '#10B98140' : '#334155'}` }}>
-            <span style={{ fontSize: 16, flexShrink: 0 }}>📈</span>
+
+          {/* Alpha Vantage — ASX stocks */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, backgroundColor: '#0F172A', border: `1px solid ${alphaSaved ? '#10B98140' : '#334155'}` }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>🦘</span>
             <div>
-              <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>Stocks & ETFs — Finnhub</p>
+              <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>ASX Stocks & ETFs — Alpha Vantage</p>
               <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
-                Free API key required (60 calls/min, no daily limit).{' '}
-                <strong style={{ color: '#F59E0B' }}>Always use the exchange suffix for ASX stocks:</strong>{' '}
-                <code style={{ color: '#06B6D4' }}>BHP.AX</code>, <code style={{ color: '#06B6D4' }}>ANZ.AX</code>, <code style={{ color: '#06B6D4' }}>WOW.AX</code>.{' '}
-                US stocks need no suffix: <code style={{ color: '#06B6D4' }}>AAPL</code>, <code style={{ color: '#06B6D4' }}>MSFT</code>.{' '}
-                <em style={{ color: '#475569' }}>Without .AX, the app may fetch a different exchange's price in USD.</em>
+                Free API key required (25 calls/day). Covers Australian stocks with the{' '}
+                <code style={{ color: '#06B6D4' }}>.AX</code> suffix:{' '}
+                <code style={{ color: '#06B6D4' }}>BHP.AX</code>, <code style={{ color: '#06B6D4' }}>ANZ.AX</code>,{' '}
+                <code style={{ color: '#06B6D4' }}>WOW.AX</code>, <code style={{ color: '#06B6D4' }}>VGS.AX</code>.{' '}
+                <em style={{ color: '#475569' }}>Finnhub's free tier does not cover the ASX — add this key for AUD prices.</em>
+              </p>
+            </div>
+            <span style={{ marginLeft: 'auto', color: alphaSaved ? '#10B981' : '#F59E0B', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+              {alphaSaved ? '✓ Active' : '⚠ Key needed'}
+            </span>
+          </div>
+
+          {/* Finnhub — US stocks */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 8, backgroundColor: '#0F172A', border: `1px solid ${finnhubSaved ? '#10B98140' : '#334155'}` }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>🇺🇸</span>
+            <div>
+              <p style={{ color: '#F1F5F9', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>US Stocks & ETFs — Finnhub</p>
+              <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
+                Free API key required (60 calls/min, no daily limit). Covers NASDAQ & NYSE:{' '}
+                <code style={{ color: '#06B6D4' }}>AAPL</code>, <code style={{ color: '#06B6D4' }}>TSLA</code>,{' '}
+                <code style={{ color: '#06B6D4' }}>MSFT</code>, <code style={{ color: '#06B6D4' }}>SPY</code>.{' '}
+                <em style={{ color: '#475569' }}>US stock prices are returned in USD — the app shows a USD badge.</em>
               </p>
             </div>
             <span style={{ marginLeft: 'auto', color: finnhubSaved ? '#10B981' : '#F59E0B', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
@@ -276,10 +315,66 @@ export default function SettingsTab({ data, setSettings, setData }) {
           </div>
         </div>
 
-        {/* Finnhub API key input */}
+        {/* Alpha Vantage API key input — ASX stocks */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+            <label style={LABEL}>Alpha Vantage API Key <span style={{ color: '#06B6D4', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(ASX stocks · 25 calls/day)</span></label>
+            <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noreferrer"
+               style={{ color: '#06B6D4', fontSize: 12, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Key size={11} /> Get free key at alphavantage.co →
+            </a>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <input
+                type={showAlphaKey ? 'text' : 'password'}
+                value={alphaInput}
+                onChange={e => setAlphaInput(e.target.value)}
+                placeholder="Paste your Alpha Vantage API key here…"
+                style={{ ...INPUT, paddingRight: 40 }}
+                onKeyDown={e => e.key === 'Enter' && handleSaveAlphaKey()}
+              />
+              <button
+                onClick={() => setShowAlphaKey(v => !v)}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#64748B' }}
+                title={showAlphaKey ? 'Hide key' : 'Show key'}>
+                {showAlphaKey ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+            <button onClick={handleSaveAlphaKey}
+                    style={{ height: 42, padding: '0 18px', backgroundColor: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              Save Key
+            </button>
+            {alphaSaved && (
+              <button onClick={handleClearAlphaKey}
+                      style={{ height: 42, padding: '0 14px', backgroundColor: 'transparent', color: '#EF4444', border: '1px solid #EF444440', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Clear
+              </button>
+            )}
+          </div>
+          {alphaSaved && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#10B981' }} />
+              <p style={{ color: '#10B981', fontSize: 12, margin: 0, fontWeight: 600 }}>
+                API key saved — ASX stock prices now enabled (BHP.AX, ANZ.AX, WOW.AX…)
+              </p>
+            </div>
+          )}
+          {!alphaSaved && (
+            <p style={{ color: '#64748B', fontSize: 12, marginTop: 8 }}>
+              💡 Visit <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noreferrer" style={{ color: '#06B6D4' }}>alphavantage.co</a>,
+              click "GET YOUR FREE API KEY TODAY", and paste it above. No credit card required.
+            </p>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div style={{ borderTop: '1px solid #1E293B', marginBottom: 20 }} />
+
+        {/* Finnhub API key input — US stocks */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
-            <label style={LABEL}>Finnhub API Key</label>
+            <label style={LABEL}>Finnhub API Key <span style={{ color: '#06B6D4', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(US stocks · 60 calls/min)</span></label>
             <a href="https://finnhub.io/register" target="_blank" rel="noreferrer"
                style={{ color: '#06B6D4', fontSize: 12, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
               <Key size={11} /> Get free key at finnhub.io →
@@ -319,18 +414,15 @@ export default function SettingsTab({ data, setSettings, setData }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#10B981' }} />
               <p style={{ color: '#10B981', fontSize: 12, margin: 0, fontWeight: 600 }}>
-                API key saved — stock & ETF prices now enabled
+                API key saved — US stock & ETF prices now enabled
               </p>
             </div>
           )}
           {!finnhubSaved && (
-            <div style={{ marginTop: 8 }}>
-              <p style={{ color: '#64748B', fontSize: 12, margin: 0 }}>
-                💡 <strong style={{ color: '#94A3B8' }}>How to get a free key:</strong>{' '}
-                Visit <a href="https://finnhub.io/register" target="_blank" rel="noreferrer" style={{ color: '#06B6D4' }}>finnhub.io/register</a>,
-                sign up (no credit card), copy your API key from the dashboard, and paste it above.
-              </p>
-            </div>
+            <p style={{ color: '#64748B', fontSize: 12, marginTop: 8 }}>
+              💡 Visit <a href="https://finnhub.io/register" target="_blank" rel="noreferrer" style={{ color: '#06B6D4' }}>finnhub.io/register</a>,
+              sign up (no credit card), copy your API key from the dashboard, and paste it above.
+            </p>
           )}
         </div>
 
