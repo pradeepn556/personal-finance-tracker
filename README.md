@@ -16,7 +16,9 @@ I come from a frontend development background, now working as a Product Speciali
 
 ## Product Overview
 
-A full-featured finance dashboard covering five core domains — each with its own data model, analytics, and UX flow.
+Before a single line of code was written, I put together a 35-page product specification covering every module — data models, UI layout, edge cases, API architecture, and acceptance criteria per feature. That document is what drove everything you see here. It's also what made the build fast — when the requirements are precise enough, there's no guessing.
+
+A full-featured finance dashboard covering five core domains, each with its own data model, analytics, and UX flow.
 
 | Module | What it does |
 |---|---|
@@ -25,52 +27,6 @@ A full-featured finance dashboard covering five core domains — each with its o
 | **Investments** | Live-price portfolio tracking across ASX and US markets — holdings, tranches, P&L, heatmap, closed positions, partial sells |
 | **Expenses** | Category-based expense logging with budget management, bank statement CSV import, auto-categorisation, and overspend alerts |
 | **Settings** | API key management, credit card/account names, budget configuration, JSON backup/restore |
-
----
-
-## Investment Module — The Thinking Behind the Design
-
-The investments tab required the most complex product thinking. Here's how I approached it:
-
-**Tranche-based portfolio model**
-
-Business requirement: users need to understand performance accurately — including which specific purchases are winning or losing, not just a blended average.
-
-Edge case I identified: if you only track "quantity of CBA", you can't answer "what's my P&L on the shares I bought in January versus the ones I bought in March at a different price?" You lose cost-basis precision the moment you have multiple buy-ins.
-
-Design decision: every purchase event is stored as a separate lot ("tranche") with its own date, quantity, and price. A dedicated Tranches Modal lets users view, edit, or close individual lots.
-
-This is the kind of thinking I bring to product decisions — understanding the data model implications of a requirement before the implementation begins.
-
-**Partial position closing**
-
-Rather than a binary open/closed state, I designed a flow for selling a portion of any lot. The system splits the record: a new closed entry is created for the sold quantity, the original lot's quantity is reduced. Realised P&L is tracked separately from unrealised.
-
-**Dual-exchange live pricing**
-
-The app supports both ASX-listed stocks (`.AX` suffix, AUD pricing) and US-listed stocks (plain ticker, USD pricing) in the same portfolio. I identified that different APIs handle ASX differently — Finnhub's free tier doesn't fully cover ASX, Alpha Vantage has no CORS headers (browser-blocked), Twelve Data does. I verified this with curl before writing any code. The UI surfaces a clear USD currency badge when a non-ASX price is returned so users always know which currency they're looking at.
-
-**CORS-safe architecture**
-
-I identified early that several financial APIs are blocked by browsers due to missing CORS headers — including Yahoo Finance and Alpha Vantage. The CORS issue is invisible: the API key saves successfully, the request appears to fire, but the browser silently blocks the response. I diagnosed this by inspecting HTTP headers directly with curl rather than assuming it was an API key problem. The final architecture uses CoinGecko (crypto, no key required), Twelve Data (ASX stocks, CORS-verified), and Finnhub (US stocks, CORS-enabled) as primary sources.
-
----
-
-## Bank Statement Import — Australian Context
-
-Manually entering every transaction is the reason people stop using finance apps. So I built a CSV import feature that works with how Australian banks actually export data.
-
-**Why CSV and not screenshots?**
-OCR misreads financial data in ways that are hard to catch — `$1,234` becomes `$1.234`. CSVs are machine-generated and exact. Every major Australian bank supports CSV export (ANZ, CommBank, Westpac, NAB).
-
-**The sign-convention problem I found and fixed:**
-ANZ Amex credit card statements export purchases as *positive* amounts and payments as *negative* amounts — the opposite of every standard bank account. My initial import code assumed the standard convention and only extracted 2 of 57 transactions from my real statement. I diagnosed it by running the parser against the actual file, identified the pattern, and built automatic sign-convention detection: the parser counts positive vs negative amounts in the file and determines the convention before extracting anything. No user configuration needed.
-
-**Auto-categorisation:**
-17 Australian merchant rule sets covering Woolworths/Coles/Aldi, KFC/McDonald's/Domino's, Chemist Warehouse, Bunnings, Telstra/Optus, Netflix/Spotify, and more. 80%+ auto-categorisation rate on real ANZ data. Categories are editable in the preview table before import.
-
-**Credit card tagging:**
-Save your card/account names in Settings, select which one you're importing during upload. Every transaction is tagged so you can filter by card in the Expenses view.
 
 ---
 
@@ -125,6 +81,52 @@ src/
 - **Alpha Vantage CORS block** — API appeared configured but silently failed. Diagnosed with curl header inspection. Replaced with Twelve Data.
 
 **Design direction** — Dark professional theme, consistent design tokens, collapsible forms (hidden until needed), professional tables with alternating rows and hover states, animated transitions. Specified in the PRD down to colour hex values, spacing units, and animation durations.
+
+---
+
+## Investment Module — The Thinking Behind the Design
+
+The investments tab required the most complex product thinking. Here's how I approached it:
+
+**Tranche-based portfolio model**
+
+Business requirement: users need to understand performance accurately — including which specific purchases are winning or losing, not just a blended average.
+
+Edge case I identified: if you only track "quantity of CBA", you can't answer "what's my P&L on the shares I bought in January versus the ones I bought in March at a different price?" You lose cost-basis precision the moment you have multiple buy-ins.
+
+Design decision: every purchase event is stored as a separate lot ("tranche") with its own date, quantity, and price. A dedicated Tranches Modal lets users view, edit, or close individual lots.
+
+This is the kind of thinking I bring to product decisions — understanding the data model implications of a requirement before the implementation begins.
+
+**Partial position closing**
+
+Rather than a binary open/closed state, I designed a flow for selling a portion of any lot. The system splits the record: a new closed entry is created for the sold quantity, the original lot's quantity is reduced. Realised P&L is tracked separately from unrealised.
+
+**Dual-exchange live pricing**
+
+The app supports both ASX-listed stocks (`.AX` suffix, AUD pricing) and US-listed stocks (plain ticker, USD pricing) in the same portfolio. I identified that different APIs handle ASX differently — Finnhub's free tier doesn't fully cover ASX, Alpha Vantage has no CORS headers (browser-blocked), Twelve Data does. I verified this with curl before writing any code. The UI surfaces a clear USD currency badge when a non-ASX price is returned so users always know which currency they're looking at.
+
+**CORS-safe architecture**
+
+I identified early that several financial APIs are blocked by browsers due to missing CORS headers — including Yahoo Finance and Alpha Vantage. The CORS issue is invisible: the API key saves successfully, the request appears to fire, but the browser silently blocks the response. I diagnosed this by inspecting HTTP headers directly with curl rather than assuming it was an API key problem. The final architecture uses CoinGecko (crypto, no key required), Twelve Data (ASX stocks, CORS-verified), and Finnhub (US stocks, CORS-enabled) as primary sources.
+
+---
+
+## Bank Statement Import — Australian Context
+
+Manually entering every transaction is the reason people stop using finance apps. So I built a CSV import feature that works with how Australian banks actually export data.
+
+**Why CSV and not screenshots?**
+OCR misreads financial data in ways that are hard to catch — `$1,234` becomes `$1.234`. CSVs are machine-generated and exact. Every major Australian bank supports CSV export (ANZ, CommBank, Westpac, NAB).
+
+**The sign-convention problem I found and fixed:**
+ANZ Amex credit card statements export purchases as *positive* amounts and payments as *negative* amounts — the opposite of every standard bank account. My initial import code assumed the standard convention and only extracted 2 of 57 transactions from my real statement. I diagnosed it by running the parser against the actual file, identified the pattern, and built automatic sign-convention detection: the parser counts positive vs negative amounts in the file and determines the convention before extracting anything. No user configuration needed.
+
+**Auto-categorisation:**
+17 Australian merchant rule sets covering Woolworths/Coles/Aldi, KFC/McDonald's/Domino's, Chemist Warehouse, Bunnings, Telstra/Optus, Netflix/Spotify, and more. 80%+ auto-categorisation rate on real ANZ data. Categories are editable in the preview table before import.
+
+**Credit card tagging:**
+Save your card/account names in Settings, select which one you're importing during upload. Every transaction is tagged so you can filter by card in the Expenses view.
 
 ---
 
