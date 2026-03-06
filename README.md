@@ -1,36 +1,86 @@
 # Personal Finance Tracker
 
-**A production-quality personal finance management application** — designed, specified, and product-managed by me (Pradeep N), built through structured PRD-driven development using Claude Code.
+**A production-quality personal finance management application** — designed, specified, and product-managed by me (Pradeep N), built through structured PRD-driven development using Claude Code as the implementation engine.
 
-This project demonstrates my ability to translate complex personal finance requirements into a fully functional, professionally designed web application — including detailed product specifications, iterative UAT cycles, edge case identification, and pixel-perfect design direction.
+---
+
+## Why This Project Exists
+
+This project is not just a finance app. It's a **proof of concept for how I work**.
+
+I started my career as a frontend web developer, then moved into a product specialist role. That combination — knowing how to build things AND knowing what should be built and why — is what this project demonstrates end-to-end.
+
+**My process here:**
+
+1. **Requirements-first** — I wrote a 35-page PRD before any code was written. Not high-level "the app should track investments" — actual data models, edge cases, API architecture decisions, and UAT criteria. The kind of spec you can build from without guessing.
+
+2. **AI-directed execution** — I used Claude Code to implement the specification, rather than writing the code myself. This was intentional. I wanted to demonstrate that detailed requirements + structured direction + rigorous validation can produce production-quality software — and that this is a higher-leverage model than a solo developer building in isolation.
+
+3. **Hands-on UAT with real data** — I tested with my own ANZ Amex statements, my own ASX holdings, my own pay cycles. That's how I caught bugs like the sign-convention issue (ANZ Amex exports purchases as positive amounts — the opposite of every other bank), and the CORS failure on Alpha Vantage that was disguised as an API key problem.
+
+4. **End-to-end ownership** — Requirements → design direction → implementation → testing → iteration → deployment. One person, full lifecycle.
+
+If you're evaluating this as a portfolio piece: the app is the output. The thinking behind it is the point.
 
 ---
 
 ## Product Overview
 
-A full-featured finance dashboard covering five core domains — each with its own data model, analytics, and UX flow designed from scratch.
+A full-featured finance dashboard covering five core domains — each with its own data model, analytics, and UX flow.
 
 | Module | What it does |
 |---|---|
-| **Dashboard** | Unified net worth view, cash flow trend, financial health metrics, recent transaction feed |
-| **Income** | Multi-source income tracking (salary, side hustle, partner) with recipient tagging and monthly analytics |
-| **Investments** | Live-price portfolio tracking across ASX and US markets — holdings, tranches, P&L, heatmap, closed positions |
-| **Expenses** | Category-based expense logging with budget management, overspend alerts, and trend analysis |
-| **Settings** | Finnhub API key management, display preferences, JSON/CSV export-import |
+| **Dashboard** | Unified net worth view, 12-month cash flow trend, financial health metrics, recent transaction feed |
+| **Income** | Multi-source income tracking (salary, side hustle, partner) with recipient tagging, pay cycle support, and monthly analytics |
+| **Investments** | Live-price portfolio tracking across ASX and US markets — holdings, tranches, P&L, heatmap, closed positions, partial sells |
+| **Expenses** | Category-based expense logging with budget management, bank statement CSV import, auto-categorisation, and overspend alerts |
+| **Settings** | API key management, credit card/account names, budget configuration, JSON backup/restore |
 
 ---
 
-## Investment Module — Product Design Highlights
+## Investment Module — The Thinking Behind the Design
 
-The investments tab required the most complex product thinking. Key design decisions I specified:
+The investments tab required the most complex product thinking. Here's how I approached it:
 
-**Tranche-based portfolio model** — Every buy event is stored as a separate lot, enabling accurate cost basis calculation per purchase date and price. Users can view all lots for a symbol in a dedicated modal.
+**Tranche-based portfolio model**
 
-**Partial position closing** — Rather than a binary open/closed state, I designed a flow where users can sell a portion of any lot. The system splits the record: a new closed entry is created for the sold quantity, and the original lot's quantity is reduced. Realised P&L is tracked separately from unrealised.
+Business requirement: users need to understand performance accurately — including which specific purchases are winning or losing, not just a blended average.
 
-**Dual-exchange live pricing** — The app supports both ASX-listed stocks (`.AX` suffix, AUD pricing) and US-listed stocks (plain ticker, USD pricing) in the same portfolio. I identified that Finnhub tries the ASX exchange first and falls back to NASDAQ/NYSE — and specified that the UI must surface a clear `USD` currency badge when a non-ASX price is returned, so users always know which currency they're looking at.
+Edge case I identified: if you only track "quantity of CBA", you can't answer "what's my P&L on the shares I bought in January versus the ones I bought in March at a different price?" You lose cost-basis precision the moment you have multiple buy-ins.
 
-**CORS-safe architecture** — I identified early that Yahoo Finance's unofficial API is blocked by browsers due to missing CORS headers. The final architecture uses CoinGecko (crypto, no key required) and Finnhub (stocks/ETFs, free API key, CORS-enabled) as primary sources — with Yahoo Finance retained as a non-CORS fallback for local/dev environments.
+Design decision: every purchase event is stored as a separate lot ("tranche") with its own date, quantity, and price. A dedicated Tranches Modal lets users view, edit, or close individual lots.
+
+This is the kind of thinking I bring to product decisions — understanding the data model implications of a requirement before the implementation begins.
+
+**Partial position closing**
+
+Rather than a binary open/closed state, I designed a flow for selling a portion of any lot. The system splits the record: a new closed entry is created for the sold quantity, the original lot's quantity is reduced. Realised P&L is tracked separately from unrealised.
+
+**Dual-exchange live pricing**
+
+The app supports both ASX-listed stocks (`.AX` suffix, AUD pricing) and US-listed stocks (plain ticker, USD pricing) in the same portfolio. I identified that different APIs handle ASX differently — Finnhub's free tier doesn't fully cover ASX, Alpha Vantage has no CORS headers (browser-blocked), Twelve Data does. I verified this with curl before writing any code. The UI surfaces a clear USD currency badge when a non-ASX price is returned so users always know which currency they're looking at.
+
+**CORS-safe architecture**
+
+I identified early that several financial APIs are blocked by browsers due to missing CORS headers — including Yahoo Finance and Alpha Vantage. The CORS issue is invisible: the API key saves successfully, the request appears to fire, but the browser silently blocks the response. I diagnosed this by inspecting HTTP headers directly with curl rather than assuming it was an API key problem. The final architecture uses CoinGecko (crypto, no key required), Twelve Data (ASX stocks, CORS-verified), and Finnhub (US stocks, CORS-enabled) as primary sources.
+
+---
+
+## Bank Statement Import — Australian Context
+
+Manually entering every transaction is the reason people stop using finance apps. So I built a CSV import feature that works with how Australian banks actually export data.
+
+**Why CSV and not screenshots?**
+OCR misreads financial data in ways that are hard to catch — `$1,234` becomes `$1.234`. CSVs are machine-generated and exact. Every major Australian bank supports CSV export (ANZ, CommBank, Westpac, NAB).
+
+**The sign-convention problem I found and fixed:**
+ANZ Amex credit card statements export purchases as *positive* amounts and payments as *negative* amounts — the opposite of every standard bank account. My initial import code assumed the standard convention and only extracted 2 of 57 transactions from my real statement. I diagnosed it by running the parser against the actual file, identified the pattern, and built automatic sign-convention detection: the parser counts positive vs negative amounts in the file and determines the convention before extracting anything. No user configuration needed.
+
+**Auto-categorisation:**
+17 Australian merchant rule sets covering Woolworths/Coles/Aldi, KFC/McDonald's/Domino's, Chemist Warehouse, Bunnings, Telstra/Optus, Netflix/Spotify, and more. 80%+ auto-categorisation rate on real ANZ data. Categories are editable in the preview table before import.
+
+**Credit card tagging:**
+Save your card/account names in Settings, select which one you're importing during upload. Every transaction is tagged so you can filter by card in the Expenses view.
 
 ---
 
@@ -39,11 +89,16 @@ The investments tab required the most complex product thinking. Key design decis
 | Layer | Technology |
 |---|---|
 | Framework | React 19 (Vite) |
-| Styling | Tailwind CSS v4 + design token system |
+| Styling | Tailwind CSS v4 |
 | Charts | Recharts |
 | Icons | Lucide React |
 | Storage | Browser localStorage — zero backend, fully private |
-| Live Prices | CoinGecko API (crypto) · Finnhub API (stocks/ETFs) |
+| Live Prices (Crypto) | CoinGecko API — no key required |
+| Live Prices (ASX) | Twelve Data API — free key, CORS-verified |
+| Live Prices (US) | Finnhub API — free key, CORS-enabled |
+
+**No backend. By design.**
+This is a single-user personal app. There's no data that needs to live on a server, no authentication problem to solve, and no hosting cost that needs to exist. Everything runs in the browser and stays on the device.
 
 ---
 
@@ -52,17 +107,17 @@ The investments tab required the most complex product thinking. Key design decis
 ```
 src/
 ├── components/
-│   ├── Dashboard/       # Net worth, cash flow, financial health, transactions
-│   ├── Income/          # Income log, source/recipient tracking, analytics
-│   ├── Investments/     # Portfolio, tranches modal, live prices, heatmap
-│   ├── Expenses/        # Budget management, category analytics
-│   └── Settings/        # API key management, export/import, preferences
+│   ├── Dashboard/       # Net worth, cash flow, financial health, recent transactions
+│   ├── Income/          # Income log, source/recipient tracking, pay cycle, analytics
+│   ├── Investments/     # Portfolio, tranches modal, live prices, heatmap, closed positions
+│   ├── Expenses/        # Budget management, CSV import, category analytics
+│   └── Settings/        # API keys, card names, budget config, export/import
 ├── utils/
-│   ├── storage.js       # localStorage abstraction, ID generation
-│   ├── calculations.js  # Net worth, unrealised/realised P&L, budget formulas
-│   ├── priceFetcher.js  # Live price routing (CoinGecko → Finnhub → Yahoo)
-│   ├── formatters.js    # Currency, percentage, number formatting
-│   └── dateHelpers.js   # Date parsing, formatting, ISO helpers
+│   ├── storage.js       # localStorage abstraction, ID generation, default settings
+│   ├── calculations.js  # Net worth, unrealised/realised P&L, savings rate, budget formulas
+│   ├── priceFetcher.js  # Live price routing — CoinGecko · Twelve Data · Finnhub · Yahoo
+│   ├── formatters.js    # AUD currency, percentage, number formatting
+│   └── dateHelpers.js   # Date parsing, month arithmetic, ISO helpers
 └── App.jsx              # Tab navigation, global state, localStorage sync
 ```
 
@@ -70,14 +125,16 @@ src/
 
 ## Development Approach
 
-**PRD-first** — Requirements were written as a detailed 35-page product specification before any code was written. The spec covered data models, UI layout per tab, edge cases, and acceptance criteria.
+**PRD-first** — 35-page product specification written before any code. Covered data models, UI layout per tab, edge cases, API integration approach, and acceptance criteria per feature. Written with enough specificity that it could be handed to a development team — or to Claude Code — without guesswork.
 
-**Iterative UAT** — Each tab went through structured user acceptance testing. Bugs were identified with screenshots and precise reproduction steps, then fixed with root cause analysis documented in commit messages. Notable bugs caught and resolved through UAT:
-- Data loss on live price refresh (React functional updater passed to non-functional state manager → `JSON.stringify(function)` = `undefined` stored in localStorage)
-- Wrong exchange pricing (Finnhub falling back to NYSE price in USD for ASX-listed stocks)
-- Screen blank on price fetch (same root cause as above — state set to a function reference)
+**Iterative UAT with real data** — Every tab tested with actual transactions, real CSV files, and real ASX/US symbols. Bugs were identified with precise reproduction steps and fixed with root cause analysis. Notable issues caught:
 
-**Design direction** — Dark professional theme, consistent design tokens, collapsible forms, professional tables with alternating rows and hover states, animated transitions, responsive layout across mobile and desktop.
+- **Data loss on live price refresh** — React functional updater passed to a state manager that called `JSON.stringify` on it. `JSON.stringify(function)` returns `undefined`. Investments array overwritten with undefined. Fixed by detecting function vs value before serialising.
+- **Wrong exchange pricing** — Finnhub falling back to NYSE price in USD for ASX-listed stocks. Fixed by adding exchange detection and surfacing a USD currency warning badge.
+- **Sign-convention failure** — ANZ Amex CSV imports positive-as-expense. Fixed with 2-pass auto-detection.
+- **Alpha Vantage CORS block** — API appeared configured but silently failed. Diagnosed with curl header inspection. Replaced with Twelve Data.
+
+**Design direction** — Dark professional theme, consistent design tokens, collapsible forms (hidden until needed), professional tables with alternating rows and hover states, animated transitions. Specified in the PRD down to colour hex values, spacing units, and animation durations.
 
 ---
 
@@ -90,19 +147,33 @@ npm install
 npm run dev
 ```
 
+For live stock/ETF prices, free API keys are needed:
+- **Twelve Data** (ASX stocks) → [twelvedata.com/register](https://twelvedata.com/register) — 800 calls/day
+- **Finnhub** (US stocks) → [finnhub.io/register](https://finnhub.io/register) — 60 calls/min
+
+Crypto prices via CoinGecko work without any key.
+
 ---
 
 ## Development Log
 
-| Date | Milestone |
+| Commit | What changed |
 |---|---|
-| Mar 2026 | Project setup — 35-page PRD written, Vite + React scaffold, GitHub repo |
-| Mar 2026 | All 5 tabs built to spec: Dashboard, Income, Investments, Expenses, Settings |
-| Mar 2026 | Full UI redesign — dark professional theme, collapsible forms, professional tables |
-| Mar 2026 | Investment tranches — per-lot tracking, partial close flow, closed positions with realised P&L |
-| Mar 2026 | Live price integration — CoinGecko (crypto) + Finnhub (stocks/ETFs), CORS architecture decision |
-| Mar 2026 | ASX + US/NASDAQ dual-market support — exchange detection, USD currency badge, error messaging |
-| Coming | GitHub Pages deployment |
+| Project scaffold | Vite + React + Tailwind setup, folder structure, ESLint |
+| Utility layer + Dashboard | storage.js, calculations.js, formatters.js, dateHelpers.js — then Dashboard tab |
+| All 5 tabs | Income, Investments, Expenses, Settings — all functional in first pass |
+| Full UI redesign | Professional dark theme, collapsible forms, design token system applied across all components |
+| Expenses fixes | Budget bar percentages, pay-cycle filter scoping, quick filter date range |
+| Live prices v1 | CoinGecko (crypto) + Yahoo Finance (stocks) — auto-fetch on symbol entry |
+| Investments polish | Tranches modal fixes, heatmap positioning, edit/delete flow |
+| CORS fix #1 | Yahoo Finance → Finnhub (US stocks) — CORS-verified replacement |
+| Critical bug fixes | Data loss, wrong exchange, app crash — all from live price UAT |
+| ASX + US dual support | Exchange detection, USD badge, error guidance |
+| Alpha Vantage attempt | Added for ASX — failed CORS inspection, superseded next commit |
+| CORS fix #2 | Alpha Vantage → Twelve Data (ASX) — curl-verified before implementation |
+| CSV import | Bank statement import, 17-category auto-categoriser, duplicate detection |
+| Sign-convention fix | ANZ Amex positive-as-expense detection, credit card tagging |
+| Keyword fix | `'KFC '` → `'KFC'` — ANZ uses underscores not spaces as separators |
 
 ---
 
@@ -110,9 +181,11 @@ npm run dev
 
 **Pradeep Narsupalli** — Product Specialist
 
-This project is part of my portfolio demonstrating AI-augmented product development — where I own the product vision, requirements, design direction, and UAT, while using Claude Code as my implementation engine.
+Frontend development background, now on the product side. I work at the intersection of what needs to be built and how it gets built — which is exactly what this project is.
 
-> *Directing AI to build is the next evolution of product management. This project is proof of concept.*
+This is part of my portfolio demonstrating AI-augmented product development: detailed requirements, structured implementation direction, and rigorous testing — applied end-to-end on a real problem I actually needed solved.
+
+> *The value isn't in knowing how to write React. It's in knowing what to build, why it matters, and how to validate it works.*
 
 ---
 
