@@ -130,23 +130,6 @@ Save your card/account names in Settings, select which one you're importing duri
 
 ---
 
-## Run Locally
-
-```bash
-git clone https://github.com/pradeepn556/personal-finance-tracker.git
-cd personal-finance-tracker
-npm install
-npm run dev
-```
-
-For live stock/ETF prices, free API keys are needed:
-- **Twelve Data** (ASX stocks) → [twelvedata.com/register](https://twelvedata.com/register) — 800 calls/day
-- **Finnhub** (US stocks) → [finnhub.io/register](https://finnhub.io/register) — 60 calls/min
-
-Crypto prices via CoinGecko work without any key.
-
----
-
 ## Development Log
 
 | Commit | What changed |
