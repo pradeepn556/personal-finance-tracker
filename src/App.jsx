@@ -7,7 +7,32 @@
 import { useState, useCallback } from 'react';
 import { LayoutDashboard, TrendingUp, LineChart, CreditCard, Settings, Menu, X } from 'lucide-react';
 
-import { loadAllData, saveData, STORAGE_KEYS } from './utils/storage';
+import { loadAllData, saveData, saveAllData, STORAGE_KEYS } from './utils/storage';
+import {
+  SAMPLE_INCOME, SAMPLE_INVESTMENTS, SAMPLE_EXPENSES,
+  SAMPLE_BUDGETS, SAMPLE_SETTINGS,
+} from './utils/sampleData';
+
+const DEMO_KEY = 'finance_app_isDemo';
+
+// Load data — if localStorage is completely empty, seed with sample data
+function loadWithSampleFallback() {
+  const existing = loadAllData();
+  const hasData  = existing.income.length > 0 || existing.expenses.length > 0 || existing.investments.length > 0;
+  if (!hasData) {
+    const demo = {
+      income:      SAMPLE_INCOME,
+      investments: SAMPLE_INVESTMENTS,
+      expenses:    SAMPLE_EXPENSES,
+      budgets:     SAMPLE_BUDGETS,
+      settings:    SAMPLE_SETTINGS,
+    };
+    saveAllData(demo);
+    localStorage.setItem(DEMO_KEY, 'true');
+    return { ...demo, lastBackup: null };
+  }
+  return existing;
+}
 
 // Tab components
 import Dashboard   from './components/Dashboard/index';
@@ -28,7 +53,8 @@ const TABS = [
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [menuOpen,  setMenuOpen]  = useState(false);
-  const [data,      setData]      = useState(() => loadAllData());
+  const [data,      setData]      = useState(() => loadWithSampleFallback());
+  const [isDemo,    setIsDemo]    = useState(() => localStorage.getItem(DEMO_KEY) === 'true');
 
   const updateData = useCallback((key, newValueOrFn) => {
     const storageKey = STORAGE_KEYS[key.toUpperCase()];
@@ -170,6 +196,37 @@ export default function App() {
           </div>
         )}
       </nav>
+
+      {/* ── DEMO BANNER ──────────────────────────────────── */}
+      {isDemo && (
+        <div style={{
+          backgroundColor: '#0C2340',
+          borderBottom: '1px solid #1E4D8C',
+          padding: '10px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '8px',
+        }}>
+          <span style={{ fontSize: '13px', color: '#93C5FD' }}>
+            📊 <strong>Demo Mode</strong> — You're viewing sample data. Clear it in{' '}
+            <button
+              onClick={() => setActiveTab('settings')}
+              style={{ color: '#06B6D4', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', padding: 0 }}
+            >
+              Settings → Clear All Data
+            </button>{' '}
+            to start entering your own.
+          </span>
+          <button
+            onClick={() => { localStorage.removeItem(DEMO_KEY); setIsDemo(false); }}
+            style={{ fontSize: '12px', color: '#64748B', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* ── MAIN CONTENT ─────────────────────────────────── */}
       <main className="max-w-7xl mx-auto" style={{ padding: '24px' }}>

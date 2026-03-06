@@ -1,5 +1,7 @@
 # Personal Finance Tracker
 
+**[▶ Live Demo](https://pradeepn556.github.io/personal-finance-tracker/)** — loads with sample Australian financial data so you can explore all features immediately.
+
 ---
 
 ## The Story Behind This
