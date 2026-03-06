@@ -4,39 +4,13 @@
 
 ## The Story Behind This
 
-My partner and I had a system that worked — technically. Two separate spreadsheets. One for investments, one for monthly expenses. A third for tracking how our closed positions performed — which stocks we sold, what we paid, what we got back, whether the returns were actually worth it against our personal savings goals.
+My partner and I were maintaining separate spreadsheets — investments, monthly expenses, closed positions — with every number entered by hand. It worked, but it was slow, error-prone, and honestly the kind of friction that makes you two months behind before you know it.
 
-Every number in those spreadsheets was entered by hand. Every month, we'd sit down, go through bank statements transaction by transaction, type figures in, build our own formulas to calculate portfolio P&L, and try to piece together a picture of where we actually stood financially. It wasn't broken. But it was slow, error-prone, and — honestly — the kind of friction that makes you put it off until you're two months behind.
+At some point the question became obvious: *why are we doing this manually at all?*
 
-The investment side was the worst of it. We hold both ASX stocks and some US positions, plus other investments. Tracking live prices meant manually looking them up and updating cells. Tracking a partial sell — where you close half a position but hold the rest — required careful formula gymnastics to keep the cost basis right. One mistake and the P&L numbers were silently wrong until you noticed something didn't add up.
+So I built something personalised to exactly how we track our finances. Bank statements drop straight in and auto-categorise. Investment prices pull live from ASX and US markets. Closed positions show exactly what we made or lost on each lot. Everything stays on our own device — no third-party services, no subscriptions, no cloud sync.
 
-At some point the conversation shifted from "let's fix the spreadsheets" to "why are we doing this manually at all?"
-
----
-
-## What This Became
-
-The idea was simple: build something personalised to exactly how we track our finances — not a generic app that almost fits, but something designed around our actual workflows.
-
-The requirements that came out of that conversation:
-- **Bank statements should feed directly in** — download the CSV from ANZ, drop it in, transactions appear categorised. Done.
-- **Investment prices should update automatically** — ASX stocks, US stocks, crypto, all from live APIs, no manual lookups.
-- **Closed positions should tell the real story** — when we sell, the app should immediately show what we made or lost on that specific lot, separate from what's still open.
-- **Everything stays private** — no linking bank accounts to a third-party service, no cloud sync, no subscription. Our data, on our device.
-
-What started as "let's solve the spreadsheet problem" became a properly built application — five modules, a data model designed around investment tranches, bank statement import that handles the quirks of how ANZ actually exports data, and a dashboard that gives us the net worth and cash flow picture at a glance.
-
-The fact that it also became a useful exercise in applying AI-directed development and product thinking end-to-end — that's a secondary outcome. The primary one is that we don't do the spreadsheet routine anymore.
-
----
-
-## How It Was Built
-
-I have a background in frontend web development, and over time moved into a product specialist role. So I brought both sides to this: I knew what to build and why, and I knew enough about how things get built to specify it precisely.
-
-I used **Claude Code** as the implementation engine — directing it with a detailed 35-page specification rather than writing the code myself. Not because I couldn't, but because I wanted to apply the same model I use professionally: clear requirements, structured direction, and rigorous validation. The interesting thing about that workflow is that the quality of what gets built is almost entirely determined by the quality of how you specify and test it. This project is the proof of that.
-
-Testing happened with real data — my actual ANZ Amex statement, my real ASX holdings, real pay cycles. That's how I caught things like the ANZ Amex sign-convention issue (their credit card statements export purchases as positive amounts — the opposite of every standard bank account), which only surfaced when 2 of 57 real transactions came through instead of all 57. Synthetic test data would never have caught it.
+I come from a frontend development background, now working as a Product Specialist. I directed **Claude Code** to build this from a detailed specification — the same way I work professionally. The result is what you'd get when someone who understands both the problem and how to build for it designs something for their own use.
 
 ---
 
