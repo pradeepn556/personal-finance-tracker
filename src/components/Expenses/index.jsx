@@ -84,7 +84,7 @@ function filterPayCycle(entries) {
 const MERCHANT_RULES = [
   { kws: ['WOOLWORTHS', 'COLES ', 'ALDI ', 'IGA ', 'FOODWORKS', 'HARRIS FARM', 'COSTCO', 'DRAKES SUPER', 'SPUDSHED'],
     cat: 'Groceries' },
-  { kws: ['HUNGRY JACK', 'MCDONALD', 'KFC ', 'DOMINOS', 'PIZZA HUT', 'PIZZA ', 'SUBWAY ', 'NANDOS', 'OPORTO',
+  { kws: ['HUNGRY JACK', 'MCDONALD', 'KFC', 'DOMINOS', 'PIZZA HUT', 'PIZZA ', 'SUBWAY ', 'NANDOS', 'OPORTO',
           'GRILL\'D', 'RESTAURANT', 'THAI ', 'SUSHI', 'RAMEN', 'BURRITO', 'KEBAB', 'TACO ', 'DINER ', 'BISTRO',
           'BRASSERIE', 'FISHERMAN', 'FISH & CHIPS', 'FISH AND CHIPS', 'CHINESE FOOD', 'INDIAN FOOD', 'MEXICAN FOOD'],
     cat: 'Dining & Takeaway' },
